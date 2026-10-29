@@ -16,7 +16,7 @@ dvv-build is cloned next to dvv-platform at the version of the `dvv-build` line 
 
 ```powershell
 git clone https://github.com/BarabashkaD/dvv-platform
-git clone --branch v0.1.0 https://github.com/BarabashkaD/dvv-build
+git clone --branch v0.1.1 https://github.com/BarabashkaD/dvv-build
 python -m pip install -r dvv-build/tools/requirements.txt
 cmake -DREPO=dvv-platform -P dvv-build/tools/fetch-deps.cmake
 ./dvv-build/bootstrap.ps1
