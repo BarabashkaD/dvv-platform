@@ -23,7 +23,22 @@ constexpr std::size_t MAX_CHUNK = std::size_t{1} << 30;  // below Linux's 0x7fff
 const bool AUTO_TRIES_UNBUFFERED = false;
 
 std::uint32_t nativeOpenFlags(bool unbuffered) noexcept {
+#if defined(__APPLE__)
+    // No O_DIRECT on macOS: nativeFcntlHints() says what openNative applies after open.
+    static_cast<void>(unbuffered);
+    return static_cast<std::uint32_t>(O_RDONLY | O_CLOEXEC);
+#else
     return static_cast<std::uint32_t>(O_RDONLY | O_CLOEXEC | (unbuffered ? O_DIRECT : 0));
+#endif
+}
+
+FcntlHints nativeFcntlHints(bool unbuffered) noexcept {
+#if defined(__APPLE__)
+    return {.noCache = unbuffered, .readAhead = !unbuffered};
+#else
+    static_cast<void>(unbuffered);
+    return {};
+#endif
 }
 
 NativeOpen openNative(const std::filesystem::path& path, bool unbuffered) noexcept {
@@ -35,10 +50,26 @@ NativeOpen openNative(const std::filesystem::path& path, bool unbuffered) noexce
     if (fd < 0) {
         return {.handle = NO_HANDLE, .error = errno};
     }
+#if defined(__APPLE__)
+    const FcntlHints hints = nativeFcntlHints(unbuffered);
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-vararg)
+    if (hints.noCache && ::fcntl(fd, F_NOCACHE, 1) != 0) {
+        // Not a hint here: without it the read is silently buffered, so the open fails.
+        const int error = errno;
+        ::close(fd);
+        return {.handle = NO_HANDLE, .error = error};
+    }
+    if (hints.readAhead) {
+        // A hint only; a failure changes nothing that is checked.
+        static_cast<void>(::fcntl(fd, F_RDAHEAD, 1));
+    }
+    // NOLINTEND(cppcoreguidelines-pro-type-vararg)
+#else
     if (!unbuffered) {
         // A hint only (the kernel reads ahead more); a failure changes nothing that is checked.
         static_cast<void>(::posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL));
     }
+#endif
     return {.handle = fd, .error = 0};
 }
 

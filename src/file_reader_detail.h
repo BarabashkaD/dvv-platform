@@ -35,13 +35,25 @@ extern const bool AUTO_TRIES_UNBUFFERED;
 // Opens buffered with the sequential-access hint, or unbuffered (see file_reader.h).
 [[nodiscard]] NativeOpen openNative(const std::filesystem::path& path, bool unbuffered) noexcept;
 // The flags openNative passes: CreateFileW's dwFlagsAndAttributes on Windows, open()'s flags on
-// Linux (the Linux hint is posix_fadvise, not a flag). For tests.
+// Linux (the Linux hint is posix_fadvise, not a flag; macOS has no O_DIRECT, see nativeFcntlHints).
+// For tests.
 [[nodiscard]] std::uint32_t nativeOpenFlags(bool unbuffered) noexcept;
+#if !defined(_WIN32)
+// The fcntl hints openNative applies after open() on macOS (F_NOCACHE for unbuffered, F_RDAHEAD
+// for the buffered sequential hint). Neither can be read back, so tests see them here. All false
+// elsewhere (Linux uses O_DIRECT in the open flags and posix_fadvise).
+struct FcntlHints {
+    bool noCache = false;
+    bool readAhead = false;
+};
+[[nodiscard]] FcntlHints nativeFcntlHints(bool unbuffered) noexcept;
+#endif
 void closeNative(std::intptr_t handle) noexcept;
 [[nodiscard]] NativeSize fileSize(std::intptr_t handle) noexcept;
 // The unbuffered I/O granule of the handle's volume: Windows max(LogicalBytesPerSector,
 // PhysicalBytesPerSectorForAtomicity) of FileStorageInfo, Linux statx STATX_DIOALIGN (4096 when
-// the kernel does not report it); 0 when it cannot be queried.
+// the kernel does not report it; always 4096 on macOS, where F_NOCACHE needs none but the contract
+// stays the same); 0 when it cannot be queried.
 [[nodiscard]] std::uint32_t sectorSize(std::intptr_t handle) noexcept;
 // Reads until `destination` is full or offset + bytes reaches `file_size`; retries EINTR and
 // partial reads.

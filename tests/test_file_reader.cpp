@@ -26,6 +26,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <fcntl.h>
 #endif
 
 #include "dvv/base/error.h"
@@ -437,6 +439,29 @@ TEST_SUITE("file_reader") {
         CHECK((unbuffered & FILE_FLAG_SEQUENTIAL_SCAN) == 0);
         CHECK((unbuffered & FILE_FLAG_OVERLAPPED) == 0);
         CHECK(dvv::platform::detail::AUTO_TRIES_UNBUFFERED);
+    }
+#endif
+
+#if defined(__linux__)
+    TEST_CASE("the Linux open flags of each mode") {
+        CHECK((dvv::platform::detail::nativeOpenFlags(false) & O_DIRECT) == 0);
+        CHECK((dvv::platform::detail::nativeOpenFlags(true) & O_DIRECT) != 0);
+    }
+#endif
+
+#if defined(__APPLE__)
+    TEST_CASE("the macOS open flags and fcntl hints of each mode") {
+        // No O_DIRECT on macOS: F_NOCACHE is applied with fcntl after open and F_RDAHEAD is the
+        // sequential hint. Neither can be read back, so the pure seam is what is checked.
+        const std::uint32_t plain = O_RDONLY | O_CLOEXEC;
+        CHECK(dvv::platform::detail::nativeOpenFlags(false) == plain);
+        CHECK(dvv::platform::detail::nativeOpenFlags(true) == plain);
+        const auto buffered = dvv::platform::detail::nativeFcntlHints(false);
+        CHECK(buffered.readAhead);
+        CHECK_FALSE(buffered.noCache);
+        const auto unbuffered = dvv::platform::detail::nativeFcntlHints(true);
+        CHECK(unbuffered.noCache);
+        CHECK_FALSE(unbuffered.readAhead);
     }
 #endif
 

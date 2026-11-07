@@ -25,6 +25,12 @@ TEST_CASE("a test window reports, changes and restores its client size") {
     window.resize({.width = 200, .height = 150});
     CHECK(window.clientSize() == PixelSize{.width = 200, .height = 150});
 
+    // Odd sizes: on a 2x display the window itself snaps to whole points, the client size does not.
+    window.resize({.width = 333, .height = 177});
+    CHECK(window.clientSize() == PixelSize{.width = 333, .height = 177});
+    window.resize({.width = 200, .height = 150});
+    CHECK(window.clientSize() == PixelSize{.width = 200, .height = 150});
+
     window.minimise();
     window.pump();
 #if defined(_WIN32)

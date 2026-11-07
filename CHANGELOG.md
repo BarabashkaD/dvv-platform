@@ -6,6 +6,18 @@ the dvv rules: compatible = the same major and at least the minimum version, als
 changes only in a new major, after a deprecation. This file is the release notes (there are no
 GitHub Releases).
 
+## [0.2.0] - 2026-11-07
+
+### Added
+- macOS (Apple Silicon): `WindowSystem::Metal`, `MetalWindow` (a `CAMetalLayer*`) and
+  `VK_EXT_metal_surface` surfaces.
+- A Cocoa `TestWindow` for display tests (physical pixels, backing scale).
+- macOS file reading: `F_NOCACHE` for unbuffered reads, `F_RDAHEAD` for sequential reads.
+
+### Changed
+- `NativeWindow` gains the `MetalWindow` alternative; code that visits the variant exhaustively
+  must handle it.
+
 ## [0.1.0] - 2026-10-28
 
 First versioned release.

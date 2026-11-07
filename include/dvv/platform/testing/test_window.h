@@ -10,13 +10,16 @@
 
 namespace dvv::platform::testing {
 
-// A visible top-level window for display tests: CreateWindowExW, or XCreateSimpleWindow on its own
-// Display (XInitThreads() once before the first XOpenDisplay). Move-only; every member is called on
-// the thread that created it. Destroy every surface and presenter made from it first.
+// A visible top-level window for display tests: CreateWindowExW, XCreateSimpleWindow on its own
+// Display (XInitThreads() once before the first XOpenDisplay), or a Cocoa NSWindow with a
+// CAMetalLayer content view (main thread; clientSize() is in physical pixels). Move-only; every
+// member is called on the thread that created it. Destroy every surface and presenter made from it
+// first.
 class TestWindow {
 public:
-    // Errc::Unsupported "no display ..." (Linux without DISPLAY, or the display cannot be opened);
-    // Errc::Internal for an empty size or when the window cannot be created or mapped.
+    // Errc::Unsupported "no display ..." (Linux without DISPLAY or the display cannot be opened;
+    // macOS without a window server session); Errc::Internal for an empty size or when the window
+    // cannot be created or mapped.
     [[nodiscard]] static Result<TestWindow> create(PixelSize client_size,
                                                    std::string_view title = "dvv test window");
     TestWindow(TestWindow&& other) noexcept;
@@ -27,10 +30,13 @@ public:
 
     [[nodiscard]] NativeWindow native() const noexcept;  // std::monostate when moved from
     [[nodiscard]] PixelSize clientSize() const;          // as the window system reports it
-    void resize(PixelSize client_size);  // synchronous (SetWindowPos / XResizeWindow + XSync)
-    void minimise();  // Win32 SW_MINIMIZE; Xlib unmap (no window manager under Xvfb)
-    void restore();   // Win32 SW_RESTORE; Xlib map
-    void pump();      // Win32 dispatches pending messages; Xlib XSync and drops queued events
+    void resize(PixelSize client_size);  // synchronous (SetWindowPos / XResizeWindow + XSync /
+                                         // setContentSize)
+    void
+    minimise();  // Win32 SW_MINIMIZE; Xlib unmap (no window manager under Xvfb); Cocoa miniaturize
+    void restore();  // Win32 SW_RESTORE; Xlib map; Cocoa deminiaturize
+    void pump();     // Win32 dispatches pending messages; Xlib XSync and drops queued events; Cocoa
+                     // handles queued events
 
 private:
     struct State;

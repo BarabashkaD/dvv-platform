@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 4.2)
-project(dvv_platform VERSION 0.1.0 DESCRIPTION "dvv platform layer" LANGUAGES CXX)
+project(dvv_platform VERSION 0.2.0 DESCRIPTION "dvv platform layer" LANGUAGES CXX)
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
 # Version string; a pre-release build adds its release-stage label (user decision U-M4ORDER).
 set(dvv_platform_VERSION_STRING "${PROJECT_VERSION}")
 
@@ -31,7 +34,7 @@ include(CMakePackageConfigHelpers)
 # module, which would pick up an installed Vulkan SDK through VULKAN_SDK.
 set(CMAKE_DISABLE_FIND_PACKAGE_Vulkan ON)
 find_package(VulkanHeaders 1.4.365 EXACT CONFIG REQUIRED)
-if(NOT WIN32)
+if(NOT WIN32 AND NOT APPLE)
     find_package(X11 REQUIRED)
 endif()
 
@@ -39,6 +42,10 @@ if(WIN32)
     set(platform_sources
         src/dynamic_library_win32.cpp src/file_reader_win32.cpp src/surface_win32.cpp)
     set(test_window_source src/testing/test_window_win32.cpp)
+elseif(APPLE)
+    set(platform_sources
+        src/dynamic_library_posix.cpp src/file_reader_posix.cpp src/surface_metal.cpp)
+    set(test_window_source src/testing/test_window_cocoa.mm)
 else()
     set(platform_sources
         src/dynamic_library_posix.cpp src/file_reader_posix.cpp src/surface_xlib.cpp)
@@ -55,7 +62,12 @@ set_target_properties(dvv_platform PROPERTIES EXPORT_NAME platform)
 target_include_directories(dvv_platform PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-if(NOT WIN32)
+if(APPLE)
+    # vulkan_metal.h declares CAMetalLayer opaque, so the Metal surface file stays plain C++.
+    set_source_files_properties(src/surface_metal.cpp PROPERTIES
+        COMPILE_DEFINITIONS VK_USE_PLATFORM_METAL_EXT)
+    target_link_libraries(dvv_platform PRIVATE "-framework QuartzCore")
+elseif(NOT WIN32)
     # Only the headers (Display, Window for VkXlibSurfaceCreateInfoKHR); nothing calls Xlib here.
     target_include_directories(dvv_platform SYSTEM PRIVATE ${X11_INCLUDE_DIR})
 endif()
@@ -72,6 +84,12 @@ add_library(dvv::platform_testing ALIAS dvv_platform_testing)
 set_target_properties(dvv_platform_testing PROPERTIES EXPORT_NAME platform_testing)
 if(WIN32)
     target_link_libraries(dvv_platform_testing PUBLIC dvv::platform PRIVATE user32)
+elseif(APPLE)
+    target_link_libraries(dvv_platform_testing PUBLIC dvv::platform
+                          PRIVATE "-framework AppKit" "-framework QuartzCore")
+    # ARC: the window and view are strong references owned by the test window state.
+    set_source_files_properties(src/testing/test_window_cocoa.mm PROPERTIES
+        COMPILE_OPTIONS -fobjc-arc)
 else()
     target_link_libraries(dvv_platform_testing PUBLIC dvv::platform PRIVATE X11::X11)
 endif()

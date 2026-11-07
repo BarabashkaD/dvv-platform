@@ -12,12 +12,19 @@ namespace {
 
 #if defined(_WIN32)
 constexpr const char* LOADER_NAME = "vulkan-1.dll";
+constexpr LibrarySearch LOADER_SEARCH = LibrarySearch::SystemDirectory;
+#elif defined(__APPLE__)
+// The loader of the third-party prefix, found through the test executable's RPATH.
+constexpr const char* LOADER_NAME = "@rpath/libvulkan.1.dylib";
+// SystemDirectory takes bare file names only; a path with @rpath goes through Default.
+constexpr LibrarySearch LOADER_SEARCH = LibrarySearch::Default;
 #else
 constexpr const char* LOADER_NAME = "libvulkan.so.1";
+constexpr LibrarySearch LOADER_SEARCH = LibrarySearch::SystemDirectory;
 #endif
 
 Result<PFN_vkGetInstanceProcAddr> loadLoader() {
-    auto library = DynamicLibrary::open(LOADER_NAME, LibrarySearch::SystemDirectory);
+    auto library = DynamicLibrary::open(LOADER_NAME, LOADER_SEARCH);
     if (!library) {
         return std::unexpected(std::move(library).error());
     }
