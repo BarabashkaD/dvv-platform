@@ -9,9 +9,10 @@
 
 namespace dvv::platform {
 
-enum class WindowSystem : std::uint8_t { Win32, Xlib };
-[[nodiscard]] std::string_view windowSystemName(WindowSystem system) noexcept;  // "Win32", "Xlib"
-// The window system this build presents to: Win32 on Windows, Xlib on Linux.
+enum class WindowSystem : std::uint8_t { Win32, Xlib, Metal };
+[[nodiscard]] std::string_view windowSystemName(WindowSystem system) noexcept;
+// "Win32", "Xlib", "Metal"
+// The window system this build presents to: Win32 on Windows, Xlib on Linux, Metal on macOS.
 [[nodiscard]] WindowSystem defaultWindowSystem() noexcept;
 
 struct PixelSize {  // physical pixels
@@ -28,9 +29,12 @@ struct XlibWindow {  // Display*, XID
     void* display = nullptr;
     unsigned long window = 0;
 };
-// The caller keeps the window (and, for Xlib, the display, opened after XInitThreads()) alive for
-// as long as any surface made from it exists.
-using NativeWindow = std::variant<std::monostate, Win32Window, XlibWindow>;
+struct MetalWindow {  // CAMetalLayer*
+    void* layer = nullptr;
+};
+// The caller keeps the window (and, for Xlib, the display, opened after XInitThreads(); for Metal,
+// the CAMetalLayer) alive for as long as any surface made from it exists.
+using NativeWindow = std::variant<std::monostate, Win32Window, XlibWindow, MetalWindow>;
 // nullopt for std::monostate.
 [[nodiscard]] std::optional<WindowSystem> windowSystemOf(const NativeWindow& window) noexcept;
 

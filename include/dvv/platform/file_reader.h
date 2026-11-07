@@ -9,11 +9,12 @@
 // - Buffered (portable): reads go through the OS file cache with a sequential-access hint.
 //   Windows CreateFileW(GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, OPEN_EXISTING,
 //   FILE_FLAG_SEQUENTIAL_SCAN); Linux open(O_RDONLY | O_CLOEXEC) and
-//   posix_fadvise(POSIX_FADV_SEQUENTIAL).
+//   posix_fadvise(POSIX_FADV_SEQUENTIAL); macOS open(O_RDONLY | O_CLOEXEC) and fcntl(F_RDAHEAD).
 // - Unbuffered: no OS cache; offset, size and address are multiples of alignment(). Windows
-//   FILE_FLAG_NO_BUFFERING; Linux O_DIRECT.
+//   FILE_FLAG_NO_BUFFERING; Linux O_DIRECT; macOS fcntl(F_NOCACHE) (which needs no alignment, but
+//   the same alignment() of 4096 is kept so callers behave the same on every platform).
 // Reads are synchronous and positional: on Windows a ReadFile on a synchronous handle with an
-// OVERLAPPED that carries only the offset; Linux uses pread().
+// OVERLAPPED that carries only the offset; Linux and macOS use pread().
 
 #include <cstddef>
 #include <cstdint>

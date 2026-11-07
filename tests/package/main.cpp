@@ -12,6 +12,10 @@ int main() {
         "kernel32.dll", dvv::platform::LibrarySearch::SystemDirectory);
     const char* const symbol = "GetTickCount64";
     constexpr std::string_view expected_system = "Win32";
+#elif defined(__APPLE__)
+    const auto library = dvv::platform::DynamicLibrary::open("libSystem.B.dylib");
+    const char* const symbol = "getpid";
+    constexpr std::string_view expected_system = "Metal";
 #else
     const auto library = dvv::platform::DynamicLibrary::open("libc.so.6");
     const char* const symbol = "getpid";

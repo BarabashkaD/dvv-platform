@@ -17,6 +17,10 @@ namespace dvv::platform::detail {
 [[nodiscard]] std::expected<VkSurfaceKHR, VkResult> createWin32Surface(
     VkInstance instance, PFN_vkGetInstanceProcAddr get_instance_proc_addr,
     const Win32Window& window) noexcept;
+#elif defined(__APPLE__)
+[[nodiscard]] std::expected<VkSurfaceKHR, VkResult> createMetalSurface(
+    VkInstance instance, PFN_vkGetInstanceProcAddr get_instance_proc_addr,
+    const MetalWindow& window) noexcept;
 #else
 [[nodiscard]] std::expected<VkSurfaceKHR, VkResult> createXlibSurface(
     VkInstance instance, PFN_vkGetInstanceProcAddr get_instance_proc_addr,

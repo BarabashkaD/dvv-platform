@@ -15,16 +15,17 @@
 namespace dvv::platform {
 
 enum class LibrarySearch : std::uint8_t {
-    Default,          // Windows LoadLibraryExW(name, nullptr, 0); Linux dlopen(RTLD_NOW|RTLD_LOCAL)
+    Default,          // Windows LoadLibraryExW(name, nullptr, 0); Linux and macOS
+                      // dlopen(RTLD_NOW|RTLD_LOCAL)
     SystemDirectory,  // Windows LOAD_LIBRARY_SEARCH_SYSTEM32 only (not app dir, cwd, PATH; an
                       // already loaded module of the same name is returned as is);
-                      // Linux as Default. `name` must be a bare file name.
+                      // Linux and macOS as Default. `name` must be a bare file name.
     // `name` is an absolute path (else Errc::Internal). Windows: LoadLibraryExW with
     // LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_APPLICATION_DIR |
     // LOAD_LIBRARY_SEARCH_SYSTEM32: the library's dependencies come only from its own folder, the
-    // executable's folder and System32 ('/' is accepted and passed on as '\'). Linux: dlopen of the
-    // path (RTLD_NOW | RTLD_LOCAL); dependencies through the library's RUNPATH or sonames already
-    // loaded.
+    // executable's folder and System32 ('/' is accepted and passed on as '\'). Linux and macOS:
+    // dlopen of the path (RTLD_NOW | RTLD_LOCAL); dependencies through the library's RUNPATH
+    // (Linux), @rpath/install names (macOS) or sonames already loaded.
     DllDirectory,
 };
 

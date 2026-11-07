@@ -13,7 +13,7 @@ set(CMAKE_DISABLE_FIND_PACKAGE_Vulkan ON)
 find_dependency(VulkanHeaders 1.4.365 EXACT CONFIG)
 set(CMAKE_DISABLE_FIND_PACKAGE_Vulkan "${_dvv_platform_disable_vulkan}")
 unset(_dvv_platform_disable_vulkan)
-if(NOT WIN32)
+if(NOT WIN32 AND NOT APPLE)
     find_dependency(X11)  # dvv::platform_testing links X11::X11
 endif()
 

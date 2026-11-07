@@ -9,8 +9,9 @@
 namespace dvv::platform::test {
 
 // A Vulkan instance for the surface tests, made through the system's Vulkan loader
-// ("vulkan-1.dll" with LibrarySearch::SystemDirectory, or "libvulkan.so.1"). The loader stays
-// loaded for the rest of the process (keepLoaded()), as in dvv-gpu.
+// ("vulkan-1.dll" with LibrarySearch::SystemDirectory, "@rpath/libvulkan.1.dylib" on macOS, or
+// "libvulkan.so.1"). The loader stays loaded for the rest of the process (keepLoaded()), as in
+// dvv-gpu.
 class VulkanInstance {
 public:
     // Errc::Unsupported when the loader is missing, or vkCreateInstance returns

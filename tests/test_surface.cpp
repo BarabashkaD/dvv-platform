@@ -51,6 +51,13 @@ TEST_CASE("a window with null handles is rejected") {
         dvv::platform::createSurface(instance.handle(), instance.getInstanceProcAddr(), no_hwnd);
     REQUIRE_FALSE(surface.has_value());
     CHECK(surface.error() == VK_ERROR_INITIALIZATION_FAILED);
+#elif defined(__APPLE__)
+    const NativeWindow no_layer{dvv::platform::MetalWindow{.layer = nullptr}};
+    const auto surface =
+        dvv::platform::createSurface(instance.handle(), instance.getInstanceProcAddr(), no_layer);
+    REQUIRE_FALSE(surface.has_value());
+    CHECK(surface.error() == VK_ERROR_INITIALIZATION_FAILED);
+    CHECK(std::get<dvv::platform::MetalWindow>(native).layer != nullptr);
 #else
     const auto& real = std::get<dvv::platform::XlibWindow>(native);
     const NativeWindow no_window{dvv::platform::XlibWindow{.display = real.display, .window = 0}};

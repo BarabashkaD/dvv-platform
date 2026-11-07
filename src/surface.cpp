@@ -13,6 +13,8 @@ constexpr std::array<const char*, 2> WIN32_EXTENSIONS{VK_KHR_SURFACE_EXTENSION_N
                                                       "VK_KHR_win32_surface"};
 constexpr std::array<const char*, 2> XLIB_EXTENSIONS{VK_KHR_SURFACE_EXTENSION_NAME,
                                                      "VK_KHR_xlib_surface"};
+constexpr std::array<const char*, 2> METAL_EXTENSIONS{VK_KHR_SURFACE_EXTENSION_NAME,
+                                                      "VK_EXT_metal_surface"};
 
 }  // namespace
 
@@ -20,6 +22,7 @@ std::span<const char* const> surfaceInstanceExtensions(WindowSystem system) noex
     switch (system) {
         case WindowSystem::Win32: return WIN32_EXTENSIONS;
         case WindowSystem::Xlib: return XLIB_EXTENSIONS;
+        case WindowSystem::Metal: return METAL_EXTENSIONS;
     }
     return {};
 }
@@ -40,6 +43,9 @@ std::expected<VkSurfaceKHR, VkResult> createSurface(
 #if defined(_WIN32)
     return detail::createWin32Surface(instance, get_instance_proc_addr,
                                       std::get<Win32Window>(window));
+#elif defined(__APPLE__)
+    return detail::createMetalSurface(instance, get_instance_proc_addr,
+                                      std::get<MetalWindow>(window));
 #else
     return detail::createXlibSurface(instance, get_instance_proc_addr,
                                      std::get<XlibWindow>(window));
