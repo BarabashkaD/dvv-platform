@@ -1,3 +1,3 @@
 # dvv dependencies: <repository> <minimum version>, dependency order (read by dvv-build).
-dvv-build 0.3.2
+dvv-build 0.4.0
 dvv-base 0.2.0
