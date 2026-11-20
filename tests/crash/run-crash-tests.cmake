@@ -144,23 +144,35 @@ function(count_lines out text regex)
     set(${out}_1 "${first}" PARENT_SCOPE)
 endfunction()
 
-# ended_as_crash(<out>): whether the last run ended as a crash (macOS, Linux: a signal death, which
-# execute_process reports as text; Windows: the exception code of the mode).
+# ended_as_crash(<out>): whether the last run ended as a crash (macOS, Linux: a death by one of the
+# crash signals, which execute_process reports as its signal text; Windows: the exception code of
+# the mode, as a text, as hex or as an unsigned or signed decimal). Any other text, such as
+# execute_process's "no such file or directory", is not a crash.
 function(ended_as_crash out)
     set(crashed FALSE)
     if(run_result MATCHES "[Tt]imeout")
         set(crashed FALSE)
     elseif(CMAKE_HOST_WIN32)
         if(run_mode STREQUAL "stack")
-            set(regex "[Ss]tack overflow|[Cc]00000[Ff][Dd]|3221225725")
+            # 0xC00000FD
+            set(regex "[Ss]tack overflow|[Cc]00000[Ff][Dd]|3221225725|-1073741571")
         else()
-            set(regex "[Aa]ccess violation|[Cc]0000005|3221225477")
+            # 0xC0000005
+            set(regex
+                "[Aa]ccess violation|[Ss]egmentation fault|[Cc]0000005|3221225477|-1073741819")
         endif()
         if(run_result MATCHES "${regex}")
             set(crashed TRUE)
         endif()
-    elseif(NOT run_result MATCHES "^-?[0-9]+$")
-        set(crashed TRUE)
+    else()
+        # CMake 4.3's texts for SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGTRAP and SIGABRT, and the
+        # spellings other versions use.
+        string(CONCAT regex
+            "^(Segmentation fault|Bus error|Illegal instruction|Floating-point exception|"
+            "SIGTRAP|Trace/breakpoint trap|Subprocess aborted|Child aborted|Abort trap)$")
+        if(run_result MATCHES "${regex}")
+            set(crashed TRUE)
+        endif()
     endif()
     set(${out} ${crashed} PARENT_SCOPE)
 endfunction()
@@ -222,8 +234,10 @@ function(check_crash out_stem)
             problem("the snapshot ${snapshot} does not start with DVVLOGS1")
         endif()
         if(logs EQUAL 1)
-            cmake_path(GET logs_1 FILENAME logged)
-            if(NOT logged STREQUAL snapshot OR NOT EXISTS "${logs_1}")
+            # Windows prints the native path, whose separators may be '\' or '/'.
+            file(TO_CMAKE_PATH "${logs_1}" logged_path)
+            cmake_path(GET logged_path FILENAME logged)
+            if(NOT logged STREQUAL snapshot OR NOT EXISTS "${logged_path}")
                 problem("the \"crash log\" line names ${logs_1}, not the snapshot ${snapshot}")
             endif()
         endif()
