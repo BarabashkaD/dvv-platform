@@ -44,8 +44,9 @@ add_library(dvv_platform STATIC
     src/dynamic_library.cpp
     src/file_reader.cpp
     src/native_window.cpp
-    src/surface.cpp)
-dvv_os_sources(dvv_platform src/dynamic_library src/file_reader src/surface)
+    src/surface.cpp
+    src/window_handle.cpp)
+dvv_os_sources(dvv_platform src/dynamic_library src/file_reader src/surface src/window_handle)
 add_library(dvv::platform ALIAS dvv_platform)
 set_target_properties(dvv_platform PROPERTIES EXPORT_NAME platform)
 target_include_directories(dvv_platform PUBLIC

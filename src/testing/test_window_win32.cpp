@@ -6,6 +6,7 @@
 
 #include "dvv/base/utf8_win32.h"
 #include "dvv/platform/testing/test_window.h"
+#include "dvv/platform/window_handle_win32.h"
 
 namespace dvv::platform::testing {
 
@@ -97,6 +98,13 @@ NativeWindow TestWindow::native() const noexcept {
         return std::monostate{};
     }
     return Win32Window{.hinstance = state_->instance, .hwnd = state_->hwnd};
+}
+
+WindowHandle TestWindow::handle() const noexcept {
+    if (!state_) {
+        return {};
+    }
+    return windowHandleOf(Win32Window{.hinstance = state_->instance, .hwnd = state_->hwnd});
 }
 
 PixelSize TestWindow::clientSize() const {

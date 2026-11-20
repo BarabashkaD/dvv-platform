@@ -15,6 +15,8 @@ TEST_CASE("a test window reports, changes and restores its client size") {
     TestWindow window = std::move(*created);
     CHECK(window.clientSize() == PixelSize{.width = 320, .height = 240});
     CHECK(dvv::platform::windowSystemOf(window.native()) == dvv::platform::defaultWindowSystem());
+    CHECK(window.handle().system() == dvv::platform::defaultWindowSystem());
+    CHECK(dvv::platform::windowHandleOf(window.native()) == window.handle());
 
     window.resize({.width = 200, .height = 150});
     CHECK(window.clientSize() == PixelSize{.width = 200, .height = 150});
@@ -45,4 +47,6 @@ TEST_CASE("a test window reports, changes and restores its client size") {
     // A moved-from TestWindow is documented to describe no window; that state is under test.
     // NOLINTNEXTLINE(bugprone-use-after-move)
     CHECK(std::holds_alternative<std::monostate>(window.native()));
+    // NOLINTNEXTLINE(bugprone-use-after-move): the moved-from state is under test.
+    CHECK(window.handle().empty());
 }

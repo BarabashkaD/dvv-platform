@@ -19,6 +19,7 @@
 
 #include "dvv/base/environment.h"
 #include "dvv/platform/testing/test_window.h"
+#include "dvv/platform/window_handle_xlib.h"
 
 namespace dvv::platform::testing {
 
@@ -114,6 +115,13 @@ NativeWindow TestWindow::native() const noexcept {
         return std::monostate{};
     }
     return XlibWindow{.display = state_->display, .window = state_->window};
+}
+
+WindowHandle TestWindow::handle() const noexcept {
+    if (!state_) {
+        return {};
+    }
+    return windowHandleOf(XlibWindow{.display = state_->display, .window = state_->window});
 }
 
 PixelSize TestWindow::clientSize() const {

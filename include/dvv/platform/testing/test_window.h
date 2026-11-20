@@ -8,6 +8,7 @@
 #include "dvv/base/error.h"
 #include "dvv/platform/native_window.h"
 #include "dvv/platform/pixel_size.h"
+#include "dvv/platform/window_handle.h"
 
 namespace dvv::platform::testing {
 
@@ -30,6 +31,7 @@ public:
     ~TestWindow();
 
     [[nodiscard]] NativeWindow native() const noexcept;  // std::monostate when moved from
+    [[nodiscard]] WindowHandle handle() const noexcept;  // empty when moved from
     [[nodiscard]] PixelSize clientSize() const;          // as the window system reports it
     void resize(PixelSize client_size);  // synchronous (SetWindowPos / XResizeWindow + XSync /
                                          // setContentSize)
