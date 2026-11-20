@@ -184,15 +184,16 @@ Result<std::size_t> FileReader::readAt(std::uint64_t offset,
                                                      dvv::pathDisplayText(parts_.path)));
     }
     if (unbuffered()) {
-        const std::uint32_t alignment = parts_.alignment;
+        const std::uint32_t block_alignment = parts_.alignment;
         const auto address = reinterpret_cast<std::uintptr_t>(destination.data());
-        const std::uint64_t remainder = address % alignment;
-        if (offset % alignment != 0 || destination.size() % alignment != 0 || remainder != 0) {
+        const std::uint64_t remainder = address % block_alignment;
+        if (offset % block_alignment != 0 || destination.size() % block_alignment != 0 ||
+            remainder != 0) {
             return makeError(Errc::Internal,
                              std::format("misaligned unbuffered read of '{}': offset {}, {} bytes, "
                                          "address mod {} = {}",
                                          dvv::pathDisplayText(parts_.path), offset,
-                                         destination.size(), alignment, remainder));
+                                         destination.size(), block_alignment, remainder));
         }
     }
     if (destination.empty()) {

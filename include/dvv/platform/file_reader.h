@@ -39,12 +39,12 @@ using NativeReadFn = NativeRead (*)(std::intptr_t handle, std::uint64_t offset,
 // What a FileReader holds (complete here because FileReader holds it).
 struct ReaderParts {
     std::intptr_t handle = -1;  // HANDLE (Windows) or file descriptor; -1: none
-    std::filesystem::path path;
+    std::filesystem::path path{};
     std::uint64_t size = 0;
     std::uint32_t alignment = 1;  // > 1: unbuffered
-    std::string fallback;
-    NativeReadFn read = nullptr;           // the platform read (a test seam)
-    std::unique_ptr<std::mutex> readLock;  // one read at a time (U-IO2); null when moved from
+    std::string fallback{};
+    NativeReadFn read = nullptr;             // the platform read (a test seam)
+    std::unique_ptr<std::mutex> readLock{};  // one read at a time (U-IO2); null when moved from
 };
 }  // namespace detail
 
