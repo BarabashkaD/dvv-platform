@@ -41,23 +41,14 @@ Result<std::array<std::uint64_t, NAME_ATTEMPTS>> nameRandoms() {
     }
 }
 
-}  // namespace
-
-namespace detail {
-
-std::filesystem::path temporaryName(const std::filesystem::path& target, std::uint64_t random) {
-    std::filesystem::path name = target;  // the folder and the file name
-    name += std::format(".{:016x}.tmp", random);
-    return name;
-}
-
-}  // namespace detail
-
-namespace {
-
-// Steps 2 to 6 for a target with a file name; an error message is the reason only.
-Result<void> replaceNamedFile(const std::filesystem::path& target, std::span<const std::byte> bytes,
-                              const ReplaceFileOptions& options) {
+// Steps 2 to 6 for a target with a file name, one temporary name per value of `randoms`; an error
+// message is the reason only.
+Result<void> replaceWithNames(const std::filesystem::path& target, std::span<const std::byte> bytes,
+                              const ReplaceFileOptions& options,
+                              std::span<const std::uint64_t> randoms) {
+    if (randoms.empty()) {
+        return makeError(Errc::Internal, "no temporary name to try");
+    }
     // The type first: a missing target is not_found with `error` also set (libstdc++, MSVC).
     std::error_code error;
     const std::filesystem::file_status status = std::filesystem::symlink_status(target, error);
@@ -71,7 +62,6 @@ Result<void> replaceNamedFile(const std::filesystem::path& target, std::span<con
         return makeError(Errc::Io, "not a regular file");
     }
 
-    DVV_TRY(const auto randoms, nameRandoms());
     std::expected<void, detail::WriteFailure> written;
     for (const std::uint64_t random : randoms) {
         written = detail::writeAndReplace(target, detail::temporaryName(target, random),
@@ -86,7 +76,34 @@ Result<void> replaceNamedFile(const std::filesystem::path& target, std::span<con
     return {};
 }
 
+// Every message names the target, as FileReader's and DynamicLibrary's do; the error keeps the
+// place where the reason was found.
+Result<void> namingTarget(Result<void> result, const std::filesystem::path& target) {
+    if (!result) {
+        Error& error = result.error();
+        error.message =
+            std::format("replacing '{}' failed: {}", pathDisplayText(target), error.message);
+    }
+    return result;
+}
+
 }  // namespace
+
+namespace detail {
+
+std::filesystem::path temporaryName(const std::filesystem::path& target, std::uint64_t random) {
+    std::filesystem::path name = target;  // the folder and the file name
+    name += std::format(".{:016x}.tmp", random);
+    return name;
+}
+
+Result<void> replaceFileWith(const std::filesystem::path& target, std::span<const std::byte> bytes,
+                             const ReplaceFileOptions& options,
+                             std::span<const std::uint64_t> randoms) {
+    return namingTarget(replaceWithNames(target, bytes, options, randoms), target);
+}
+
+}  // namespace detail
 
 Result<void> replaceFile(const std::filesystem::path& target, std::span<const std::byte> bytes,
                          const ReplaceFileOptions& options) {
@@ -94,15 +111,11 @@ Result<void> replaceFile(const std::filesystem::path& target, std::span<const st
         return makeError(Errc::Internal,
                          std::format("replaceFile: '{}' names no file", pathDisplayText(target)));
     }
-    Result<void> replaced = replaceNamedFile(target, bytes, options);
-    if (!replaced) {
-        // Every message names the target, as FileReader's and DynamicLibrary's do; the error keeps
-        // the place where the reason was found.
-        Error& error = replaced.error();
-        error.message =
-            std::format("replacing '{}' failed: {}", pathDisplayText(target), error.message);
+    auto randoms = nameRandoms();
+    if (!randoms) {
+        return namingTarget(std::unexpected(std::move(randoms.error())), target);
     }
-    return replaced;
+    return detail::replaceFileWith(target, bytes, options, *randoms);
 }
 
 }  // namespace dvv::platform

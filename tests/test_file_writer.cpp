@@ -1,9 +1,11 @@
 #include <doctest/doctest.h>
 
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <fstream>
@@ -473,6 +475,47 @@ TEST_SUITE("file_writer") {
         }
         CHECK(readFile(taken) == "other writer");
         CHECK_FALSE(fs::exists(target));
+    }
+
+    TEST_CASE("a taken temporary name moves on to the next one") {
+        const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
+        const fs::path target = dir.path() / "a.json";
+        const fs::path taken = detail::temporaryName(target, 1);
+        writeBytes(taken, "other writer");
+        const std::array<std::uint64_t, 4> randoms = {1, 2, 3, 4};
+        const auto result = detail::replaceFileWith(target, bytesOf("new"), {}, randoms);
+        CHECK(result.has_value());
+        CHECK(readFile(target) == "new");
+        CHECK(readFile(taken) == "other writer");  // another writer's file is never removed
+        for (const std::uint64_t random : std::initializer_list<std::uint64_t>{2, 3, 4}) {
+            CHECK_FALSE(fs::exists(detail::temporaryName(target, random)));
+        }
+    }
+
+    TEST_CASE("four taken temporary names fail and leave every file alone") {
+        const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
+        const fs::path target = dir.path() / "a.json";
+        writeBytes(target, "old");
+        const std::array<std::uint64_t, 4> randoms = {1, 2, 3, 4};
+        for (const std::uint64_t random : randoms) {
+            writeBytes(detail::temporaryName(target, random), "other writer");
+        }
+        const auto result = detail::replaceFileWith(target, bytesOf("new"), {}, randoms);
+        CHECK_FALSE(result.has_value());
+        if (!result) {
+            CHECK(result.error().code == dvv::Errc::Io);
+            CHECK(result.error().message.starts_with(failurePrefix(target) +
+                                                     "cannot create a temporary file: "));
+        }
+        CHECK(readFile(target) == "old");
+        for (const std::uint64_t random : randoms) {
+            CHECK(readFile(detail::temporaryName(target, random)) == "other writer");
+        }
+        const auto none = detail::replaceFileWith(target, bytesOf("new"), {}, {});
+        CHECK_FALSE(none.has_value());
+        if (!none) {
+            CHECK(none.error().code == dvv::Errc::Internal);
+        }
     }
 
     TEST_CASE("the edges of the target path") {

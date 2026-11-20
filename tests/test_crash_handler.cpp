@@ -304,6 +304,22 @@ TEST_SUITE("crash_handler") {
         CHECK_FALSE(fs::exists(dir.path() / (stemAt(0) + ".reported.dvvlog")));
     }
 
+    TEST_CASE("a snapshot that cannot be read gets one line and is renamed") {
+        if (::geteuid() == 0) {
+            MESSAGE("skipped: root reads a file without permissions");
+            return;
+        }
+        const dvv::platform::test::TemporaryDirectory dir("dvv-crash-handler");
+        const dvv::platform::test::LoggerScope log;
+        writeBytes(dir.path() / (stemAt(0) + ".dvvlog"), emptySnapshot());
+        fs::permissions(dir.path() / (stemAt(0) + ".dvvlog"), fs::perms::none);
+        reportEarlierSnapshots(dir.path(), "p", 8);
+        CHECK(log.count("an earlier run left a crash log that cannot be read (") == 1);
+        CHECK(log.count(HEADER) == 0);
+        CHECK_FALSE(fs::exists(dir.path() / (stemAt(0) + ".dvvlog")));
+        CHECK(fs::exists(dir.path() / (stemAt(0) + ".reported.dvvlog")));
+    }
+
     TEST_CASE("pthread_kill counts as sent") {
         struct sigaction action{};
         action.sa_sigaction = &captureSignal;
