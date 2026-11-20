@@ -16,9 +16,19 @@ struct CrashBackendSetup {
     std::string process;
     const dvv::Logger* logger = nullptr;
 };
-// Installs the OS handler: "" or the reason it cannot (per OS: crash_handler_win32.cpp,
-// crash_handler_posix.cpp).
-[[nodiscard]] std::string installBackend(const CrashBackendSetup& setup);
+// What installBackend did. `off` non-empty: the handler is off, for that reason. Else `noDumps`
+// non-empty: the handler is on but writes no minidump, for that reason (Windows: dbghelp.dll or
+// its MiniDumpWriteDump missing, or no dump thread); a crash still writes the cause line and the
+// snapshot.
+struct BackendStatus {
+    std::string off{};
+    std::string noDumps{};
+};
+// Installs the OS handler (per OS: crash_handler_win32.cpp, crash_handler_posix.cpp).
+[[nodiscard]] BackendStatus installBackend(const CrashBackendSetup& setup);
+// The one Warn line for `status`: "crash handler is off: <off>", else "crash dumps are off:
+// <noDumps>", else "" (installed in full).
+[[nodiscard]] std::string backendWarning(const BackendStatus& status);
 // Crashes as `mode` asks (crashIfRequested's modes); returns for any other value. Per OS.
 void crashNow(std::string_view mode);
 [[nodiscard]] bool isValidAppName(std::string_view app) noexcept;
@@ -28,6 +38,14 @@ void crashNow(std::string_view mode);
 // "crash signal" / "crash exception" lines use it.
 [[nodiscard]] std::size_t appendNumber(std::span<char> out, std::uint64_t value, unsigned base,
                                        unsigned min_digits) noexcept;
+// Copies `text` to `out` at `length` and advances `length`; false (nothing copied) when it does
+// not fit. Async-signal-safe.
+[[nodiscard]] bool appendText(std::span<char> out, std::size_t& length,
+                              std::string_view text) noexcept;
+// appendNumber at `length`, advancing `length`; false (nothing written) when it does not fit.
+// Async-signal-safe.
+[[nodiscard]] bool appendNumberAt(std::span<char> out, std::size_t& length, std::uint64_t value,
+                                  unsigned base, unsigned min_digits) noexcept;
 // True for exactly "<process>-<8 digits>-<6 digits>-<1 to 10 digits>.dvvlog".
 [[nodiscard]] bool isSnapshotName(std::string_view file_name, std::string_view process) noexcept;
 // "<process>-<yyyymmdd-hhmmss>-<pid>" from local seconds since 1970 (days-from-civil arithmetic,

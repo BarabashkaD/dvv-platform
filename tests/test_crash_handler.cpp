@@ -27,6 +27,10 @@ namespace {
 
 namespace fs = std::filesystem;
 using dvv::platform::detail::appendNumber;
+using dvv::platform::detail::appendNumberAt;
+using dvv::platform::detail::appendText;
+using dvv::platform::detail::BackendStatus;
+using dvv::platform::detail::backendWarning;
 using dvv::platform::detail::formatCrashStem;
 using dvv::platform::detail::isSnapshotName;
 using dvv::platform::detail::isValidAppName;
@@ -97,6 +101,34 @@ TEST_SUITE("crash_handler") {
         CHECK(appendNumber(short19, MAX, 10, 1) == 0);
         std::array<char, 7> short7{};
         CHECK(appendNumber(short7, 0xE06D7363, 16, 8) == 0);
+    }
+
+    TEST_CASE("appendText and appendNumberAt advance or leave everything as it was") {
+        std::array<char, 8> out{};
+        std::size_t length = 0;
+        CHECK(appendText(out, length, "ab"));
+        CHECK(appendNumberAt(out, length, 0xFF, 16, 4));
+        CHECK(length == 6);
+        CHECK(std::string_view(out.data(), length) == "ab00ff");
+        CHECK_FALSE(appendText(out, length, "xyz"));
+        CHECK_FALSE(appendNumberAt(out, length, 123, 10, 1));
+        CHECK(length == 6);
+        CHECK(appendNumberAt(out, length, 42, 10, 1));
+        CHECK(std::string_view(out.data(), length) == "ab00ff42");
+        std::size_t past_end = 9;
+        CHECK_FALSE(appendText(out, past_end, ""));
+        CHECK_FALSE(appendNumberAt(out, past_end, 0, 10, 1));
+        CHECK(past_end == 9);
+    }
+
+    TEST_CASE("backendWarning: off, dumps off, or nothing") {
+        CHECK(backendWarning(BackendStatus{}).empty());
+        CHECK(backendWarning(BackendStatus{.off = "the crash folder path is too long"}) ==
+              "crash handler is off: the crash folder path is too long");
+        CHECK(backendWarning(BackendStatus{.noDumps = "MiniDumpWriteDump not found"}) ==
+              "crash dumps are off: MiniDumpWriteDump not found");
+        CHECK(backendWarning(BackendStatus{.off = "a", .noDumps = "b"}) ==
+              "crash handler is off: a");
     }
 
     TEST_CASE("isSnapshotName") {

@@ -70,18 +70,6 @@ static_assert(std::is_trivially_destructible_v<CrashState>);
 static_assert(std::atomic<int>::is_always_lock_free);
 constinit CrashState state{};
 
-// Copies `text` to `out` at `length` and advances it; false (nothing copied) when it does not fit.
-bool appendText(std::span<char> out, std::size_t& length, std::string_view text) noexcept {
-    if (text.size() > out.size() - length) {
-        return false;
-    }
-    for (const char c : text) {
-        out[length] = c;
-        ++length;
-    }
-    return true;
-}
-
 // write(2) of all `size` bytes, retrying EINTR and partial writes; false on any other failure.
 bool writeAll(int file, const char* data, std::size_t size) noexcept {
     while (size > 0) {
@@ -243,15 +231,10 @@ void onCrashSignal(int signal, siginfo_t* info, void* /*context*/) {
     const std::span<char> line(state.line);
     std::size_t length = 0;
     if (appendText(line, length, std::string_view(state.app, state.appLength)) &&
-        appendText(line, length, ": crash signal ")) {
-        const std::size_t digits =
-            appendNumber(line.subspan(length), static_cast<std::uint64_t>(signal), 10, 1);
-        if (digits != 0) {
-            length += digits;
-            if (appendText(line, length, "\n")) {
-                writeLine(length);
-            }
-        }
+        appendText(line, length, ": crash signal ") &&
+        appendNumberAt(line, length, static_cast<std::uint64_t>(signal), 10, 1) &&
+        appendText(line, length, "\n")) {
+        writeLine(length);
     }
     writeSnapshotFile();
     restorePreviousActions();
@@ -350,9 +333,9 @@ bool faultRepeats(int signal, const siginfo_t& info) noexcept {
     return fault && !signalWasSent(signal, info);
 }
 
-std::string installBackend(const CrashBackendSetup& setup) {
+BackendStatus installBackend(const CrashBackendSetup& setup) {
     if (!copyText(state.folder, dvv::pathText(setup.folder))) {
-        return "the crash folder path is too long";
+        return {.off = "the crash folder path is too long"};
     }
     // §4.9 step 2 limits both names to 63 bytes, so they fit; a name that did not would be empty.
     state.appLength = copyText(state.app, setup.app) ? setup.app.size() : 0;
@@ -385,7 +368,7 @@ std::string installBackend(const CrashBackendSetup& setup) {
             for (std::size_t set = 0; set < i; ++set) {
                 static_cast<void>(::sigaction(CRASH_SIGNALS[set], &state.previous[set], nullptr));
             }
-            return "sigaction failed: " + std::generic_category().message(error);
+            return {.off = "sigaction failed: " + std::generic_category().message(error)};
         }
     }
     return {};

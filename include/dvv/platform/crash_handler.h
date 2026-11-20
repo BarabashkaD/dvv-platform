@@ -35,16 +35,19 @@ struct CrashHandlerOptions {
 // also when two processes start at the same moment.
 //
 // When it cannot install, it logs one Warn "crash handler is off: <reason>" and the process runs
-// without it. Install it last among the process's fatal-signal handlers (macOS, Linux): one
-// installed later replaces it; one installed earlier runs after it. Throws only std::bad_alloc.
+// without it. On Windows, when it can install but cannot write minidumps (dbghelp.dll or its
+// MiniDumpWriteDump missing, or no dump thread), it logs one Warn "crash dumps are off: <reason>"
+// and stays on: a crash writes the stderr lines and <stem>.dvvlog, and no <stem>.dmp. Install it
+// last among the process's fatal-signal handlers (macOS, Linux): one installed later replaces it;
+// one installed earlier runs after it. Throws only std::bad_alloc.
 void installCrashHandler(const CrashHandlerOptions& options);
 
 // Test hook: reads the environment variable `variable` and crashes that way: "1" an access
 // violation (Windows) or an invalid memory access (macOS, Linux) on this thread; "stack" a stack
-// overflow on this thread (Windows: exits 99 with "<app>: stack guarantee missing" when
-// installCrashHandler's stack guarantee is not in effect on this thread); "threads" four threads
-// fault at once; "exit" a fault in a static destructor after main() returns; "abort" std::abort().
-// Any other value, or no variable, returns.
+// overflow on this thread (Windows: exits 99 when installCrashHandler's stack guarantee is not in
+// effect on this thread, first writing "<app>: stack guarantee missing" on stderr when the handler
+// is on); "threads" four threads fault at once; "exit" a fault in a static destructor after main()
+// returns; "abort" std::abort(). Any other value, or no variable, returns.
 void crashIfRequested(std::string_view variable);
 
 }  // namespace dvv::platform

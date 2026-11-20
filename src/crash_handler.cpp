@@ -59,27 +59,6 @@ constexpr bool skipText(std::string_view& text, std::string_view prefix) noexcep
     return true;
 }
 
-// Copies `text` to `out` at `length` and advances it; false (nothing copied) when it does not fit.
-bool appendText(std::span<char> out, std::size_t& length, std::string_view text) noexcept {
-    if (text.size() > out.size() - length) {
-        return false;
-    }
-    std::ranges::copy(text, out.subspan(length).begin());
-    length += text.size();
-    return true;
-}
-
-// appendNumber at `length`, advancing it; false when it does not fit.
-bool appendNumberAt(std::span<char> out, std::size_t& length, std::uint64_t value,
-                    unsigned min_digits) noexcept {
-    const std::size_t count = appendNumber(out.subspan(length), value, 10, min_digits);
-    if (count == 0) {
-        return false;
-    }
-    length += count;
-    return true;
-}
-
 // The proleptic Gregorian date of `days` since 1970-01-01 (H. Hinnant's civil_from_days).
 struct CivilDate {
     std::int64_t year = 0;
@@ -182,6 +161,28 @@ std::size_t appendNumber(std::span<char> out, std::uint64_t value, unsigned base
     return zeros + digits;
 }
 
+bool appendText(std::span<char> out, std::size_t& length, std::string_view text) noexcept {
+    if (length > out.size() || text.size() > out.size() - length) {
+        return false;
+    }
+    std::ranges::copy(text, out.subspan(length).begin());
+    length += text.size();
+    return true;
+}
+
+bool appendNumberAt(std::span<char> out, std::size_t& length, std::uint64_t value, unsigned base,
+                    unsigned min_digits) noexcept {
+    if (length > out.size()) {
+        return false;
+    }
+    const std::size_t count = appendNumber(out.subspan(length), value, base, min_digits);
+    if (count == 0) {
+        return false;
+    }
+    length += count;
+    return true;
+}
+
 bool isSnapshotName(std::string_view file_name, std::string_view process) noexcept {
     std::string_view rest = file_name;
     return skipText(rest, process) && skipText(rest, "-") && skipDigits(rest, 8, 8) &&
@@ -206,14 +207,25 @@ std::size_t formatCrashStem(std::span<char> out, std::string_view process,
     const auto time_of_day = static_cast<std::uint64_t>(second_of_day);
     std::size_t length = 0;
     const bool fits = appendText(out, length, process) && appendText(out, length, "-") &&
-                      appendNumberAt(out, length, static_cast<std::uint64_t>(date.year), 4) &&
-                      appendNumberAt(out, length, date.month, 2) &&
-                      appendNumberAt(out, length, date.day, 2) && appendText(out, length, "-") &&
-                      appendNumberAt(out, length, time_of_day / 3600, 2) &&
-                      appendNumberAt(out, length, (time_of_day / 60) % 60, 2) &&
-                      appendNumberAt(out, length, time_of_day % 60, 2) &&
-                      appendText(out, length, "-") && appendNumberAt(out, length, pid, 1);
+                      appendNumberAt(out, length, static_cast<std::uint64_t>(date.year), 10, 4) &&
+                      appendNumberAt(out, length, date.month, 10, 2) &&
+                      appendNumberAt(out, length, date.day, 10, 2) &&
+                      appendText(out, length, "-") &&
+                      appendNumberAt(out, length, time_of_day / 3600, 10, 2) &&
+                      appendNumberAt(out, length, (time_of_day / 60) % 60, 10, 2) &&
+                      appendNumberAt(out, length, time_of_day % 60, 10, 2) &&
+                      appendText(out, length, "-") && appendNumberAt(out, length, pid, 10, 1);
     return fits ? length : 0;
+}
+
+std::string backendWarning(const BackendStatus& status) {
+    if (!status.off.empty()) {
+        return std::format("crash handler is off: {}", status.off);
+    }
+    if (!status.noDumps.empty()) {
+        return std::format("crash dumps are off: {}", status.noDumps);
+    }
+    return {};
 }
 
 void reportEarlierSnapshots(const std::filesystem::path& folder, std::string_view process,
@@ -274,8 +286,9 @@ void installCrashHandler(const CrashHandlerOptions& options) {
                                               .app = options.app,
                                               .process = options.process,
                                               .logger = &logger};
-        if (const std::string reason = detail::installBackend(setup); !reason.empty()) {
-            warn(reason);
+        if (const std::string warning = detail::backendWarning(detail::installBackend(setup));
+            !warning.empty()) {
+            logger.write(dvv::LogLevel::Warn, warning);
         }
         detail::reportEarlierSnapshots(setup.folder, options.process, 8);
     });

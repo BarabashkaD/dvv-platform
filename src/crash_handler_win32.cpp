@@ -8,6 +8,7 @@
 #include <string_view>
 #include <thread>
 #include <type_traits>
+#include <utility>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -84,29 +85,6 @@ struct CrashState {
 static_assert(std::is_trivially_destructible_v<CrashState>);
 static_assert(std::atomic<DWORD>::is_always_lock_free);
 constinit CrashState state{};
-
-// Copies `text` to `out` at `length` and advances it; false (nothing copied) when it does not fit.
-bool appendText(std::span<char> out, std::size_t& length, std::string_view text) noexcept {
-    if (text.size() > out.size() - length) {
-        return false;
-    }
-    for (const char c : text) {
-        out[length] = c;
-        ++length;
-    }
-    return true;
-}
-
-// appendNumber at `length`, advancing it; false when it does not fit.
-bool appendNumberAt(std::span<char> out, std::size_t& length, std::uint64_t value, unsigned base,
-                    unsigned min_digits) noexcept {
-    const std::size_t count = appendNumber(out.subspan(length), value, base, min_digits);
-    if (count == 0) {
-        return false;
-    }
-    length += count;
-    return true;
-}
 
 // WriteFile of all `size` bytes; false on a failure.
 bool writeAll(HANDLE file, const char* data, std::size_t size) noexcept {
@@ -284,9 +262,10 @@ void writeSnapshotFile() noexcept {
 }
 
 // The minidump of the owner's exception to <stem>.dmp, then "<app>: crash dump <path>". A failure
-// skips the rest of this file only.
+// skips the rest of this file only. Nothing without MiniDumpWriteDump (installBackend's "crash
+// dumps are off").
 void writeDumpFile() noexcept {
-    if (!formatPath(".dmp")) {
+    if (state.writeDump == nullptr || !formatPath(".dmp")) {
         return;
     }
     const HANDLE file = CreateFileW(state.path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
@@ -343,12 +322,13 @@ LONG WINAPI onUnhandledException(EXCEPTION_POINTERS* pointers) {
     }
     s.pointers = pointers;
     s.faultingThreadId = self;
-    if (WaitForSingleObject(s.thread, 0) == WAIT_TIMEOUT) {  // the dump thread is alive
+    if (s.thread != nullptr && WaitForSingleObject(s.thread, 0) == WAIT_TIMEOUT) {  // it is alive
         SetEvent(s.request);
         const HANDLE waits[2] = {s.done, s.thread};
         WaitForMultipleObjects(2, waits, FALSE, DUMP_TIMEOUT_MS);
     } else {
-        // ExitProcess ends every other thread before the DLL detach: write on this thread.
+        // No dump thread was made (then there is no minidump either), or it is gone (ExitProcess
+        // ends every other thread before the DLL detach): write on this thread.
         writeCrashFiles();
     }
     // End the process here with the exception code as its exit code: no unwind (on a stack that
@@ -415,8 +395,9 @@ struct ExitCrash {
 };
 constinit ExitCrash exit_crash;
 
-// "<app>: stack guarantee missing" on stderr and exit 99, unless installBackend's stack guarantee
-// is in effect on this thread: without it a stack overflow can end as an access violation.
+// Exits 99 unless installBackend's stack guarantee is in effect on this thread: without it a stack
+// overflow can end as an access violation. First writes "<app>: stack guarantee missing" on stderr
+// when installBackend stored the app name (the handler is on), as the handler's other lines do.
 void requireStackGuarantee() {
     ULONG guarantee = 0;  // 0: the call only reports the current guarantee
     if (SetThreadStackGuarantee(&guarantee) != FALSE && guarantee >= OVERFLOW_STACK_GUARANTEE) {
@@ -424,7 +405,8 @@ void requireStackGuarantee() {
     }
     std::array<char, NAME_CAPACITY + 32> text{};
     std::size_t length = 0;
-    if (appendText(text, length, std::string_view(state.app, state.appLength)) &&
+    if (state.appLength != 0 &&
+        appendText(text, length, std::string_view(state.app, state.appLength)) &&
         appendText(text, length, ": stack guarantee missing\n")) {
         static_cast<void>(writeAll(GetStdHandle(STD_ERROR_HANDLE), text.data(), length));
     }
@@ -433,18 +415,10 @@ void requireStackGuarantee() {
 
 }  // namespace
 
-std::string installBackend(const CrashBackendSetup& setup) {
-    auto library = DynamicLibrary::open("dbghelp.dll", LibrarySearch::SystemDirectory);
-    if (!library) {
-        return library.error().describe();
-    }
-    const auto write_dump = library->function<WriteDump>("MiniDumpWriteDump");
-    if (write_dump == nullptr) {
-        return "MiniDumpWriteDump not found";
-    }
+BackendStatus installBackend(const CrashBackendSetup& setup) {
     const std::wstring& folder = setup.folder.native();
     if (!copyText(state.folder, std::wstring_view(folder))) {
-        return "the crash folder path is too long";
+        return {.off = "the crash folder path is too long"};
     }
     state.folderLength = folder.size();
     state.rootLength = setup.folder.root_path().native().size();
@@ -454,16 +428,36 @@ std::string installBackend(const CrashBackendSetup& setup) {
         copyText(state.exe, std::string_view(setup.process)) ? setup.process.size() : 0;
     state.logger = setup.logger;
     state.file = INVALID_HANDLE_VALUE;
+
+    // The minidump needs dbghelp and the dump thread; without either the handler stays on for the
+    // cause line and the snapshot, and only the minidump is off (the first reason is reported).
+    std::string no_dumps;
+    WriteDump write_dump = nullptr;
+    auto library = DynamicLibrary::open("dbghelp.dll", LibrarySearch::SystemDirectory);
+    if (!library) {
+        no_dumps = library.error().describe();
+    } else {
+        write_dump = library->function<WriteDump>("MiniDumpWriteDump");
+        if (write_dump == nullptr) {
+            no_dumps = "MiniDumpWriteDump not found";
+        }
+    }
     // Process-lifetime handles, never closed (the filter may run at any time until the end).
     state.request = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     state.done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (state.request == nullptr || state.done == nullptr) {
-        return "CreateEventW failed (error " + std::to_string(GetLastError()) + ")";
+        if (no_dumps.empty()) {
+            no_dumps = "CreateEventW failed (error " + std::to_string(GetLastError()) + ")";
+        }
+    } else {
+        state.thread = CreateThread(nullptr, DUMP_THREAD_STACK_BYTES, &dumpThread, nullptr,
+                                    STACK_SIZE_PARAM_IS_A_RESERVATION, &state.dumpThreadId);
+        if (state.thread == nullptr && no_dumps.empty()) {
+            no_dumps = "CreateThread failed (error " + std::to_string(GetLastError()) + ")";
+        }
     }
-    state.thread = CreateThread(nullptr, DUMP_THREAD_STACK_BYTES, &dumpThread, nullptr,
-                                STACK_SIZE_PARAM_IS_A_RESERVATION, &state.dumpThreadId);
     if (state.thread == nullptr) {
-        return "CreateThread failed (error " + std::to_string(GetLastError()) + ")";
+        write_dump = nullptr;  // never MiniDumpWriteDump on the crashing thread's stack
     }
     // A stack overflow is dispatched, filtered (onUnhandledException) and unwound on the
     // overflowing thread's last pages, which by default leave only a few KB; without more, that
@@ -472,10 +466,12 @@ std::string installBackend(const CrashBackendSetup& setup) {
     // keeps the default guarantee, and the handler stays on.
     ULONG guarantee = OVERFLOW_STACK_GUARANTEE;
     static_cast<void>(SetThreadStackGuarantee(&guarantee));
-    library->keepLoaded();
-    state.writeDump = write_dump;
+    if (write_dump != nullptr) {
+        library->keepLoaded();
+        state.writeDump = write_dump;
+    }
     SetUnhandledExceptionFilter(&onUnhandledException);
-    return {};
+    return {.noDumps = std::move(no_dumps)};
 }
 
 void crashNow(std::string_view mode) {
@@ -487,8 +483,7 @@ void crashNow(std::string_view mode) {
     } else if (mode == "threads") {
         crashOnThreads();
     } else if (mode == "exit") {
-        exit_crash.armed.store(
-            true);  // the process crashes after main(), in the static destructors
+        exit_crash.armed.store(true);  // the process faults after main(), in the static destructors
     } else if (mode == "abort") {
         std::abort();
     }
