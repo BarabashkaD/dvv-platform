@@ -73,6 +73,24 @@ set_tests_properties(dvv_platform.surface PROPERTIES
     ENVIRONMENT_MODIFICATION "${DVV_TEST_ENVIRONMENT}")
 set_property(TEST dvv_platform.surface APPEND PROPERTY LABELS sanity)
 
+# Crash test (spec §8): a child process crashes in each mode and the script checks the crash
+# handler's stderr lines, files and report. Not registered for sanitizer builds, whose own
+# fatal-signal handlers would stand between the crash and the handler.
+if(NOT DVV_SANITIZE)
+    add_executable(dvv_platform_crash_child crash/crash_child.cpp)
+    target_link_libraries(dvv_platform_crash_child PRIVATE dvv::platform)
+    dvv_set_compiler_options(dvv_platform_crash_child)
+    add_test(NAME dvv_platform.crash
+             COMMAND ${CMAKE_COMMAND}
+                     -DCHILD=$<TARGET_FILE:dvv_platform_crash_child>
+                     -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/crash-home
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/crash/run-crash-tests.cmake)
+    # The timeout turns a hung child (each run has its own 60 s limit) into a failure.
+    set_tests_properties(dvv_platform.crash PROPERTIES
+        TIMEOUT 900
+        ENVIRONMENT_MODIFICATION "${DVV_TEST_ENVIRONMENT}")
+endif()
+
 # Package test (spec §3.1): install, then build a consumer with find_package(dvv_platform) and
 # another with dvv_platform in-tree. The whole build tree is installed (CMAKE_BINARY_DIR), so the
 # prefix also holds dvv_base, which dvv_dependencies() always adds as a subproject. Skipped for
