@@ -42,7 +42,8 @@ Target `dvv::platform` (namespace `dvv::platform`):
   (`XlibWindow`) and `window_handle_metal.h` (`MetalWindow`: a `CAMetalLayer*`) build a
   `WindowHandle` with `windowHandleOf(<struct>)` and read it back with `win32WindowOf()`,
   `xlibWindowOf()` and `metalWindowOf()`. The caller keeps the window alive while anything made
-  from its handle exists.
+  from its handle exists; for Xlib also the `Display`, which it opens after `XInitThreads()`, and
+  for Metal the `CAMetalLayer`.
 - `dvv/platform/native_window.h` (deprecated, removed in 1.0.0): `NativeWindow`, a `std::variant`
   of `std::monostate` and the per-OS structs; `windowSystemOf()` and
   `windowHandleOf(const NativeWindow&)`. Use `window_handle.h`, `pixel_size.h` and the per-OS
@@ -73,16 +74,47 @@ Target `dvv::platform` (namespace `dvv::platform`):
 - `dvv/platform/crash_handler.h`: `installCrashHandler(options)` (below) and the test hook
   `crashIfRequested(variable)`.
 
+### Window handle
+
+A window is described once in its per-OS header's struct and passed on as a `WindowHandle`; the
+code that uses it reads it back through the same header:
+
+```cpp
+#include "dvv/platform/window_handle_metal.h"
+
+// Where the window is made (here the macOS view's CAMetalLayer*):
+const dvv::platform::WindowHandle handle =
+    dvv::platform::windowHandleOf(dvv::platform::MetalWindow{.layer = layer});
+// Where it is used:
+if (const auto metal = dvv::platform::metalWindowOf(handle)) {
+    useLayer(metal->layer);
+}
+```
+
 ### Library search
 
-- `LibrarySearch::Default`: `LoadLibraryExW(name, nullptr, 0)`.
-- `LibrarySearch::SystemDirectory`: only the Windows system directory
+- `LibrarySearch::Default`: Windows `LoadLibraryExW(name, nullptr, 0)`, the standard search
+  order; macOS and Linux `dlopen(name, RTLD_NOW | RTLD_LOCAL)`, the system's search.
+- `LibrarySearch::SystemDirectory`: Windows searches only the system directory
   (`LOAD_LIBRARY_SEARCH_SYSTEM32`), never the application directory, the current directory or
-  `PATH`; the name must be a bare file name. dvv-gpu opens `vulkan-1.dll` this way.
-- `LibrarySearch::LibraryDirectory`: loads a library by absolute path and takes its dependencies
-  only from its own folder, the executable's folder and System32, as the FFmpeg loader of
-  dvv-components does. `LibrarySearch::DllDirectory` stays as an alias of it (deprecated, removed
-  in 1.0.0).
+  `PATH`; dvv-gpu opens `vulkan-1.dll` this way. On macOS and Linux it is `Default`. On every OS
+  the name must be a bare file name.
+- `LibrarySearch::LibraryDirectory`: the name is an absolute path. Windows loads it with
+  `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_APPLICATION_DIR |
+  LOAD_LIBRARY_SEARCH_SYSTEM32`, so its dependencies come only from its own folder, the
+  executable's folder and System32, as the FFmpeg loader of dvv-components needs. macOS and Linux
+  `dlopen` the path (`RTLD_NOW | RTLD_LOCAL`); its dependencies come through its RUNPATH (Linux),
+  its `@rpath` and install names (macOS) or libraries of the same name already loaded, so its own
+  folder is searched only when its RUNPATH or `@rpath` names it (`$ORIGIN`, `@loader_path`).
+  `LibrarySearch::DllDirectory` stays as an alias of it (deprecated, removed in 1.0.0).
+
+```cpp
+// A versioned library by its file name on this OS: "avutil-60.dll", "libavutil.60.dylib" or
+// "libavutil.so.60".
+DVV_TRY(auto avutil,
+        dvv::platform::DynamicLibrary::open(dvv::platform::libraryFileName("avutil", 60)));
+const auto version = avutil.function<unsigned (*)()>("avutil_version");  // null when missing
+```
 
 ### replaceFile
 
@@ -95,7 +127,32 @@ sharing violation, a lock violation, access denied, `ERROR_UNABLE_TO_REMOVE_REPL
 `ERROR_ALREADY_EXISTS` or `ERROR_FILE_EXISTS` for a new target another writer created first, and
 `ERROR_FILE_NOT_FOUND` for an existing target that another writer's replace has briefly moved
 away. It creates no folder and resolves no link. The temporary file is removed on every failure
-except a lost target with `LostTarget::KeepTemporary`.
+except a lost target with `LostTarget::KeepTemporary`. It throws only `std::bad_alloc`.
+
+`Flushed` flushes the new file's data before the replace, not the replace itself: macOS and Linux
+do not flush the folder after the rename, and `ReplaceFileW` is not write-through (the move to a
+new target is), so after a power loss the old file can come back; either file is complete. On
+macOS and Linux the new file keeps only the target's permission bits: its owner and group are the
+caller's, and ACLs and extended attributes (macOS tags, quarantine) are not kept. Windows keeps the
+target's attributes and ACL. macOS and Linux replace a read-only target (the folder's permissions
+decide); Windows refuses it with access denied, which is a retried code, so the call fails only
+after all `retries` attempts.
+
+```cpp
+// Settings: flushed, and the temporary file kept if Windows loses the target.
+dvv::Result<void> saveSettings(const std::filesystem::path& file, std::string_view text) {
+    return dvv::platform::replaceFile(file, std::as_bytes(std::span(text)));
+}
+
+// A cache that can be made again: no flush, retries on Windows, no temporary file left behind.
+dvv::Result<void> saveCache(const std::filesystem::path& file, std::span<const std::byte> bytes) {
+    return dvv::platform::replaceFile(
+        file, bytes,
+        {.durability = dvv::platform::FileDurability::Unflushed,
+         .retries = 4,
+         .lostTarget = dvv::platform::LostTarget::RemoveTemporary});
+}
+```
 
 ### Crash handler
 
@@ -122,13 +179,19 @@ SIGTRAP and SIGABRT on an alternate stack of the installing thread; a stack over
 thread ends the process without a snapshot. A handler for these signals installed before it runs
 after it; one installed later replaces it. On Windows it replaces an earlier SIGABRT handler,
 which then never runs, and one installed later replaces it; each CRT instance has its own signal
-table, so an `abort()` in a module with its own static CRT does not reach it.
+table, so an `abort()` in a module with its own static CRT does not reach it. In an app built
+with the Debug CRT, `abort()` first shows the CRT's message box and waits for it, before the
+handler runs, unless the app calls `_set_abort_behavior(0, _WRITE_ABORT_MSG)`; `crashIfRequested`
+does that itself.
 
 On Windows without `dbghelp.dll` or its `MiniDumpWriteDump` (or when the dump thread cannot
 start), the handler still installs: a crash writes the stderr lines and the snapshot, no `.dmp`,
 and the install logs one Warn "crash dumps are off: <reason>". When two threads crash at once, the
-first one's files are written; on macOS and Linux a second crashing thread waits for them, then
-its signal is raised again.
+first one's files are written and the second thread waits for them. On Windows the first thread
+then ends the process. On macOS and Linux the second thread's signal then takes its course under
+the restored action: a fault from the hardware (SIGSEGV, SIGBUS, SIGILL or SIGFPE) returns and
+faults again, while SIGTRAP, SIGABRT and a sent signal are raised again. Under the default
+actions the first of the two signals delivered ends the process.
 
 ### FileReader
 

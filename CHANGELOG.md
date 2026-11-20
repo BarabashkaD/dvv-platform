@@ -34,23 +34,35 @@ GitHub Releases).
   (`.dvvlog`), then a minidump; without dbghelp the snapshot is still written and the install
   logs "crash dumps are off: <reason>". macOS and Linux: a fatal signal writes the crash
   snapshot, then the system's crash report or core dump follows; a second crashing thread waits
-  and raises its signal again. stderr names the cause and the files. The next start logs the
-  snapshots of earlier crashed runs. No logger call after a crash.
+  for the first one's files, then its signal takes its course under the restored action (a
+  hardware fault faults again; SIGTRAP, SIGABRT and a sent signal are raised again). stderr names
+  the cause and the files. The next start logs the snapshots of earlier crashed runs. No logger
+  call after a crash.
 
 ### Changed
-- Requires dvv-base 0.5.0 and dvv-build 0.5.1.
+- Requires dvv-base 0.5.0 and dvv-build 0.5.1. A dependent that moves to dvv-platform 0.3.0 also
+  lists `dvv-base 0.5.0` (or a later 0.x) in its `dvv-deps.txt`.
 - Messages show a path that is not valid UTF-8 with U+FFFD (dvv-base's display text).
 - The `DynamicLibrary::open` error for a relative path names `LibrarySearch::LibraryDirectory`.
 - Per-OS sources are selected with `dvv_os_sources`; no behaviour change.
 
 ### Deprecated (removed in 1.0.0)
-- `dvv/platform/surface.h` (`surfaceInstanceExtensions`, `createSurface`): dvv-gpu creates its
-  surfaces itself. The package's Vulkan-Headers dependency, the `VK_NO_PROTOTYPES` definition and
-  the QuartzCore link go with it.
-- `NativeWindow`, `windowSystemOf()` and `windowHandleOf(const NativeWindow&)`; the header
-  `native_window.h`, and reaching `PixelSize`, `WindowSystem` or the per-OS structs through it:
-  include `window_handle.h`, `pixel_size.h` and the per-OS header.
-- `TestWindow::native()`: use `handle()`.
+Every deprecated name still compiles in 0.3.0; each entry names its replacement.
+- `dvv/platform/surface.h` (`surfaceInstanceExtensions`, `createSurface`): no replacement in
+  dvv-platform; dvv-gpu 0.3.0 creates its surfaces itself from a `WindowHandle`. The package's
+  Vulkan-Headers dependency, the `VK_NO_PROTOTYPES` definition and the QuartzCore link go with it.
+- The header `native_window.h`: include `window_handle.h`, `pixel_size.h` and the per-OS header
+  (`window_handle_win32.h`, `window_handle_xlib.h`, `window_handle_metal.h`). Reaching
+  `PixelSize`, `WindowSystem` or the per-OS structs through native_window.h goes with it; the
+  structs `Win32Window`, `XlibWindow` and `MetalWindow` themselves stay (also after 1.0.0), in
+  their per-OS headers.
+- `NativeWindow`: use `WindowHandle`. `NativeWindow{XlibWindow{display, window}}` becomes
+  `windowHandleOf(XlibWindow{display, window})` (the same for the other structs);
+  `std::get_if<XlibWindow>(&native)` becomes `xlibWindowOf(handle)`.
+- `windowSystemOf(const NativeWindow&)`: use `handle.system()`.
+- `windowHandleOf(const NativeWindow&)`: build the `WindowHandle` from the struct.
+- `TestWindow::native()`: use `handle()`; `windowHandleOf(window.native())` becomes
+  `window.handle()`.
 - `LibrarySearch::DllDirectory`, kept as an alias of `LibraryDirectory`: use `LibraryDirectory`.
 
 ### Fixed

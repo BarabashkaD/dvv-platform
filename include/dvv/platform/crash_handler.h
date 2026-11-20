@@ -41,8 +41,9 @@ struct CrashHandlerOptions {
 // last among the process's fatal-signal handlers (macOS, Linux): one installed later replaces it;
 // one installed earlier runs after it. On Windows it replaces an earlier SIGABRT handler, which
 // then never runs, and one installed later replaces it; each CRT instance has its own signal
-// table, so an abort() in a module with its own static CRT does not reach it. Throws only
-// std::bad_alloc.
+// table, so an abort() in a module with its own static CRT does not reach it. With the Debug CRT,
+// abort() first shows the CRT's message box and waits for it, unless the app calls
+// _set_abort_behavior(0, _WRITE_ABORT_MSG). Throws only std::bad_alloc.
 void installCrashHandler(const CrashHandlerOptions& options);
 
 // Test hook: reads the environment variable `variable` and crashes that way: "1" an access
