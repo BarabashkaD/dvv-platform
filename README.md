@@ -106,11 +106,11 @@ are created at the first crash. `app` is 1 to 63 bytes of UTF-8.
 
 | OS | On a crash | Then |
 | --- | --- | --- |
-| Windows | the log snapshot `<process>-<yyyymmdd-hhmmss>-<pid>.dvvlog`, then a minidump `<same stem>.dmp` | the process ends with the exception code |
+| Windows | the log snapshot `<process>-<yyyymmdd-hhmmss>-<pid>.dvvlog`, then a minidump `<same stem>.dmp` | the process ends with the exception code (3 for `abort()`) |
 | macOS | the log snapshot `<process>-<yyyymmdd-hhmmss>-<pid>.dvvlog` | the system writes its crash report as for any process |
 | Linux | the log snapshot `<process>-<yyyymmdd-hhmmss>-<pid>.dvvlog` | a core dump, where the system enables them |
 
-stderr gets "<app>: crash exception 0x<code>" (Windows) or "<app>: crash
+stderr gets "<app>: crash exception 0x<code>" or "<app>: crash abort" (Windows) or "<app>: crash
 signal <number>" (macOS, Linux), then "<app>: crash log <path>", then "<app>: crash dump <path>"
 (Windows). The snapshot holds
 the log records that had not reached the sinks yet (asynchronous logging) and the dropped counts.

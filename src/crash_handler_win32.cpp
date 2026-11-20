@@ -1,5 +1,6 @@
 #include <array>
 #include <atomic>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -51,6 +52,8 @@ constexpr DWORD DUMP_TIMEOUT_MS = 120'000;
 constexpr ULONG OVERFLOW_STACK_GUARANTEE = 64 * 1024;
 // Exit code of crashNow("stack") when that guarantee is missing.
 constexpr UINT GUARANTEE_MISSING_EXIT_CODE = 99;
+// Exit code of a process that abort() ends: the CRT's abort code.
+constexpr UINT ABORT_EXIT_CODE = 3;
 
 // Process infrastructure, set once by installBackend. Trivially destructible at namespace scope,
 // so it is never destroyed: a crash in a static destructor or at DLL detach still finds it. The
@@ -70,7 +73,7 @@ struct CrashState {
     HANDLE thread;                 // the dump thread, created by installBackend (its own stack)
     DWORD dumpThreadId;            // its id
     std::atomic<DWORD> owner;      // the first crashing thread (0: none yet); later ones wait
-    EXCEPTION_POINTERS* pointers;  // of the owner, for the dump thread
+    EXCEPTION_POINTERS* pointers;  // of the owner, for the dump thread; nullptr for abort()
     DWORD faultingThreadId;
     HANDLE file;  // the snapshot file while it is written
     bool writeFailed;
@@ -135,17 +138,21 @@ void writeSnapshotBytes(void* context, const void* data, std::size_t size) {
     }
 }
 
-// "<app>: crash exception 0x<8 hex digits>" on stderr, from the owner's exception record.
+// "<app>: crash exception 0x<8 hex digits>" on stderr, from the owner's exception record, or
+// "<app>: crash abort" without one.
 void writeCauseLine() noexcept {
-    if (state.pointers == nullptr || state.pointers->ExceptionRecord == nullptr) {
-        return;
-    }
+    const EXCEPTION_RECORD* record =
+        state.pointers != nullptr ? state.pointers->ExceptionRecord : nullptr;
     const std::span<char> line(state.line);
     std::size_t length = 0;
-    if (appendText(line, length, std::string_view(state.app, state.appLength)) &&
-        appendText(line, length, ": crash exception 0x") &&
-        appendNumberAt(line, length, state.pointers->ExceptionRecord->ExceptionCode, 16, 8) &&
-        appendText(line, length, "\n")) {
+    bool fits = appendText(line, length, std::string_view(state.app, state.appLength));
+    if (record != nullptr) {
+        fits = fits && appendText(line, length, ": crash exception 0x") &&
+               appendNumberAt(line, length, record->ExceptionCode, 16, 8);
+    } else {
+        fits = fits && appendText(line, length, ": crash abort");
+    }
+    if (fits && appendText(line, length, "\n")) {
         writeLine(length);
     }
 }
@@ -261,9 +268,10 @@ void writeSnapshotFile() noexcept {
     }
 }
 
-// The minidump of the owner's exception to <stem>.dmp, then "<app>: crash dump <path>". A failure
-// skips the rest of this file only. Nothing without MiniDumpWriteDump (installBackend's "crash
-// dumps are off").
+// The minidump of the owner's exception to <stem>.dmp, then "<app>: crash dump <path>"; for
+// abort() (no exception pointers) a dump of every thread with no exception stream. A failure skips
+// the rest of this file only. Nothing without MiniDumpWriteDump (installBackend's "crash dumps are
+// off").
 void writeDumpFile() noexcept {
     if (state.writeDump == nullptr || !formatPath(".dmp")) {
         return;
@@ -275,8 +283,10 @@ void writeDumpFile() noexcept {
     }
     // The faulting thread's id, not the dump thread's: the dump shows the crash as the exception.
     MINIDUMP_EXCEPTION_INFORMATION exception{state.faultingThreadId, state.pointers, FALSE};
+    const PMINIDUMP_EXCEPTION_INFORMATION exception_param =
+        state.pointers != nullptr ? &exception : nullptr;
     const BOOL written = state.writeDump(GetCurrentProcess(), GetCurrentProcessId(), file,
-                                         MiniDumpNormal, &exception, nullptr, nullptr);
+                                         MiniDumpNormal, exception_param, nullptr, nullptr);
     const bool closed = CloseHandle(file) != FALSE;
     if (written != FALSE && closed) {
         writePathLine("crash dump");
@@ -306,35 +316,68 @@ DWORD WINAPI dumpThread(void* /*unused*/) {
     return 0;
 }
 
-// Small stack use only: a stack overflow runs this on a thread with little stack left.
-LONG WINAPI onUnhandledException(EXCEPTION_POINTERS* pointers) {
-    CrashState& s = state;
-    const DWORD self = GetCurrentThreadId();
-    if (self == s.dumpThreadId) {
-        return EXCEPTION_EXECUTE_HANDLER;  // the dump itself crashed: end the process
+// Makes the calling thread the crash's owner. False on the dump thread or when this thread owns
+// the crash already (a crash inside the handler): the caller ends the process at once. When
+// another thread owns it, this one waits forever: that thread writes and ends the process; never
+// hand it to WER. Small stack use only, as its callers.
+bool takeCrash(DWORD self) noexcept {
+    if (self == state.dumpThreadId) {
+        return false;
     }
     DWORD expected = 0;
-    if (!s.owner.compare_exchange_strong(expected, self)) {
+    if (!state.owner.compare_exchange_strong(expected, self)) {
         if (expected == self) {
-            return EXCEPTION_EXECUTE_HANDLER;  // a fault inside the filter: end the process
+            return false;
         }
-        Sleep(INFINITE);  // another thread writes and ends the process; never hand it to WER
+        Sleep(INFINITE);
     }
-    s.pointers = pointers;
-    s.faultingThreadId = self;
-    if (s.thread != nullptr && WaitForSingleObject(s.thread, 0) == WAIT_TIMEOUT) {  // it is alive
-        SetEvent(s.request);
-        const HANDLE waits[2] = {s.done, s.thread};
+    return true;
+}
+
+// The owner's part: wakes the dump thread for `pointers` (nullptr for abort()) and waits for it
+// within the bound, or writes on this thread when there is no dump thread.
+void writeOwnedCrash(EXCEPTION_POINTERS* pointers, DWORD self) noexcept {
+    state.pointers = pointers;
+    state.faultingThreadId = self;
+    if (state.thread != nullptr && WaitForSingleObject(state.thread, 0) == WAIT_TIMEOUT) {
+        // The dump thread is alive.
+        SetEvent(state.request);
+        const HANDLE waits[2] = {state.done, state.thread};
         WaitForMultipleObjects(2, waits, FALSE, DUMP_TIMEOUT_MS);
     } else {
         // No dump thread was made (then there is no minidump either), or it is gone (ExitProcess
         // ends every other thread before the DLL detach): write on this thread.
         writeCrashFiles();
     }
+}
+
+// Small stack use only: a stack overflow runs this on a thread with little stack left.
+LONG WINAPI onUnhandledException(EXCEPTION_POINTERS* pointers) {
+    const DWORD self = GetCurrentThreadId();
+    if (!takeCrash(self)) {
+        return EXCEPTION_EXECUTE_HANDLER;  // the dump or the filter itself crashed: end the process
+    }
+    writeOwnedCrash(pointers, self);
     // End the process here with the exception code as its exit code: no unwind (on a stack that
     // may be exhausted), no DLL detach, no WER dialog.
     TerminateProcess(GetCurrentProcess(), pointers->ExceptionRecord->ExceptionCode);
     return EXCEPTION_EXECUTE_HANDLER;  // fallback: the OS ends the process with the exception code
+}
+
+// The CRT's SIGABRT handler. abort() raises SIGABRT on the aborting thread before it would hand
+// the process to WER, so abort(), std::terminate, a noexcept violation and an exception that
+// leaves a std::thread function end here. The filter's rules, with no exception pointers and the
+// CRT's abort exit code 3.
+void onAbortSignal(int /*signal*/) {
+    // The CRT resets SIGABRT to SIG_DFL before it calls this; set it again, so an abort() on
+    // another thread meanwhile also comes here and waits instead of ending the process at once.
+    static_cast<void>(std::signal(SIGABRT, &onAbortSignal));
+    const DWORD self = GetCurrentThreadId();
+    if (takeCrash(self)) {
+        writeOwnedCrash(nullptr, self);
+    }
+    TerminateProcess(GetCurrentProcess(), ABORT_EXIT_CODE);
+    // Fallback: abort() goes on and ends the process with exit code 3 itself.
 }
 
 // Copies `text` and a NUL into `target`; false when it does not fit.
@@ -471,6 +514,8 @@ BackendStatus installBackend(const CrashBackendSetup& setup) {
         state.writeDump = write_dump;
     }
     SetUnhandledExceptionFilter(&onUnhandledException);
+    // SIGABRT is a valid signal, so signal() cannot fail here.
+    static_cast<void>(std::signal(SIGABRT, &onAbortSignal));
     return {.noDumps = std::move(no_dumps)};
 }
 
@@ -485,6 +530,8 @@ void crashNow(std::string_view mode) {
     } else if (mode == "exit") {
         exit_crash.armed.store(true);  // the process faults after main(), in the static destructors
     } else if (mode == "abort") {
+        // A Debug CRT would show its abort message box before it raises SIGABRT.
+        static_cast<void>(_set_abort_behavior(0, _WRITE_ABORT_MSG));
         std::abort();
     }
 }

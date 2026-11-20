@@ -18,10 +18,10 @@ struct CrashHandlerOptions {
 // either logger mode). A later call does nothing.
 //
 // On a crash it writes, in this order and with no logger call, lock or allocation:
-// - Windows (an unhandled exception): "<app>: crash exception 0x<8 hex digits>" on stderr; the
-//   logger's crash snapshot (dvv::Logger::writeCrashSnapshot) to <stem>.dvvlog, then "<app>:
-//   crash log <path>"; a minidump <stem>.dmp, then "<app>: crash dump <path>"; then it ends the
-//   process with the exception code.
+// - Windows (an unhandled exception, or abort()): "<app>: crash exception 0x<8 hex digits>" (or
+//   "<app>: crash abort") on stderr; the logger's crash snapshot (dvv::Logger::writeCrashSnapshot)
+//   to <stem>.dvvlog, then "<app>: crash log <path>"; a minidump <stem>.dmp, then "<app>: crash
+//   dump <path>"; then it ends the process with the exception code (3 for abort()).
 // - macOS and Linux (SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGTRAP or SIGABRT): "<app>: crash signal
 //   <number>" on stderr; the crash snapshot to <stem>.dvvlog, then "<app>: crash log <path>"; then
 //   the signal takes its course under the action that was installed before (by default the

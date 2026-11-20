@@ -30,12 +30,12 @@ GitHub Releases).
   `metalWindowOf()` to read a handle back. `windowHandleOf(const NativeWindow&)` converts the
   variant. `TestWindow::handle()`.
 - `dvv/platform/crash_handler.h`: `installCrashHandler(options)` and the test hook
-  `crashIfRequested(variable)`. Windows: a crash writes the logger's crash snapshot (`.dvvlog`),
-  then a minidump; without dbghelp the snapshot is still written and the install logs "crash
-  dumps are off: <reason>". macOS and Linux: a fatal signal writes the crash snapshot, then the
-  system's crash report or core dump follows; a second crashing thread waits and raises its
-  signal again. stderr names the cause and the files. The next start logs the snapshots of
-  earlier crashed runs. No logger call after a crash.
+  `crashIfRequested(variable)`. Windows: a crash or `abort()` writes the logger's crash snapshot
+  (`.dvvlog`), then a minidump; without dbghelp the snapshot is still written and the install
+  logs "crash dumps are off: <reason>". macOS and Linux: a fatal signal writes the crash
+  snapshot, then the system's crash report or core dump follows; a second crashing thread waits
+  and raises its signal again. stderr names the cause and the files. The next start logs the
+  snapshots of earlier crashed runs. No logger call after a crash.
 
 ### Changed
 - Requires dvv-base 0.5.0 and dvv-build 0.5.1.
