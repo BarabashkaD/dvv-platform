@@ -58,7 +58,7 @@ void* loadLibrary(const std::string& name, LibrarySearch search, std::string& er
     switch (search) {
         case LibrarySearch::Default: break;
         case LibrarySearch::SystemDirectory: flags = LOAD_LIBRARY_SEARCH_SYSTEM32; break;
-        case LibrarySearch::DllDirectory:
+        case LibrarySearch::LibraryDirectory:
             // LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR needs a fully qualified path with backslashes.
             std::ranges::replace(path, L'/', L'\\');
             flags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_APPLICATION_DIR |
@@ -89,3 +89,11 @@ void unloadLibrary(void* handle) noexcept {
 }
 
 }  // namespace dvv::platform::detail
+
+namespace dvv::platform {
+
+std::string libraryFileName(std::string_view name, unsigned major) {
+    return std::format("{}-{}.dll", name, major);
+}
+
+}  // namespace dvv::platform

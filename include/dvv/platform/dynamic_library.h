@@ -26,16 +26,25 @@ enum class LibrarySearch : std::uint8_t {
     // executable's folder and System32 ('/' is accepted and passed on as '\'). Linux and macOS:
     // dlopen of the path (RTLD_NOW | RTLD_LOCAL); dependencies through the library's RUNPATH
     // (Linux), @rpath/install names (macOS) or sonames already loaded.
-    DllDirectory,
+    LibraryDirectory,
+    DllDirectory =
+        LibraryDirectory,  // Deprecated (CHANGELOG): use LibraryDirectory; removed in 1.0.0
 };
+
+// The file name of a shared library with a major version on this OS: Windows "<name>-<major>.dll",
+// macOS "lib<name>.<major>.dylib", Linux "lib<name>.so.<major>". A bare file name, never a folder
+// or a loader prefix such as "@rpath/"; pass it to DynamicLibrary::open as is or after one.
+// `name` is the base name without "lib" (e.g. "avutil", "vulkan"); it is not checked.
+[[nodiscard]] std::string libraryFileName(std::string_view name, unsigned major);
 
 // Move-only RAII handle (spec §9.4 "handles"); the destructor unloads unless keepLoaded().
 class DynamicLibrary {
 public:
     // UTF-8 name. Errc::Unsupported "'<name>' could not be loaded: <system message>";
     // Errc::Internal for an empty name, a name containing '\0', a SystemDirectory name
-    // containing '/' or '\\', or a DllDirectory name that is not an absolute path
-    // ("DynamicLibrary::open: '<name>' must be an absolute path with LibrarySearch::DllDirectory").
+    // containing '/' or '\\', or a LibraryDirectory name that is not an absolute path
+    // ("DynamicLibrary::open: '<name>' must be an absolute path with
+    // LibrarySearch::LibraryDirectory").
     [[nodiscard]] static Result<DynamicLibrary> open(std::string_view name,
                                                      LibrarySearch search = LibrarySearch::Default);
     DynamicLibrary(DynamicLibrary&& other) noexcept;

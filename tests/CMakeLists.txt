@@ -6,8 +6,8 @@ find_package(doctest 2.5 REQUIRED CONFIG)
 add_library(dvv_platform_test_module MODULE test_module.cpp)
 dvv_set_compiler_options(dvv_platform_test_module)
 
-# LibrarySearch::DllDirectory: a run-time library whose dependency sits in its own folder, away from
-# the test executable and the working directory, so only a search of the library's own folder
+# LibrarySearch::LibraryDirectory: a run-time library whose dependency sits in its own folder, away
+# from the test executable and the working directory, so only a search of the library's own folder
 # finds it. $<CONFIG> in the folder keeps multi-config generators from adding their own subfolder.
 set(dll_directory "${CMAKE_CURRENT_BINARY_DIR}/dll-directory/$<CONFIG>")
 add_library(dvv_platform_test_dependency SHARED test_dependency.cpp)

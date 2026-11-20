@@ -43,7 +43,7 @@ Target `dvv::platform` (namespace `dvv::platform`):
 - `dvv/platform/dynamic_library.h`: `DynamicLibrary`, a move-only RAII handle.
   `DynamicLibrary::open(name, search)` takes a UTF-8 name and returns `Errc::Unsupported`
   "'<name>' could not be loaded: <system message>", or `Errc::Internal` for an empty name, a name
-  containing `'\0'`, a `SystemDirectory` name with a path separator, or a `DllDirectory` name that
+  containing `'\0'`, a `SystemDirectory` name with a path separator, or a `LibraryDirectory` name that
   is not an absolute path. `symbol()` / `function<F>()` return null for a missing symbol; the
   destructor unloads the library unless `keepLoaded()` was called.
 - `dvv/platform/file_reader.h`: `FileReader` (below) and `allocateAligned(bytes, alignment)`, which
@@ -56,7 +56,7 @@ Target `dvv::platform` (namespace `dvv::platform`):
 - `LibrarySearch::SystemDirectory`: only the Windows system directory
   (`LOAD_LIBRARY_SEARCH_SYSTEM32`), never the application directory, the current directory or
   `PATH`; the name must be a bare file name. dvv-gpu opens `vulkan-1.dll` this way.
-- `LibrarySearch::DllDirectory`: loads a library by absolute path and takes its dependencies only
+- `LibrarySearch::LibraryDirectory`: loads a library by absolute path and takes its dependencies only
   from its own folder, the executable's folder and System32, as the FFmpeg loader of
   dvv-components does.
 
