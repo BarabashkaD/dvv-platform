@@ -26,8 +26,10 @@ struct Win32Window {  // HINSTANCE, HWND
         return std::nullopt;
     }
     const WindowHandle::Words words = handle.words();
+    // NOLINTBEGIN(performance-no-int-to-ptr): native handles stored as words
     return Win32Window{.hinstance = reinterpret_cast<void*>(words[0]),
                        .hwnd = reinterpret_cast<void*>(words[1])};
+    // NOLINTEND(performance-no-int-to-ptr)
 }
 
 }  // namespace dvv::platform

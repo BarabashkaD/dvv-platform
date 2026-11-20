@@ -30,6 +30,7 @@ static_assert(sizeof(unsigned long) <= sizeof(std::uintptr_t));
         return std::nullopt;
     }
     const WindowHandle::Words words = handle.words();
+    // NOLINTNEXTLINE(performance-no-int-to-ptr): a native handle stored as a word
     return XlibWindow{.display = reinterpret_cast<void*>(words[0]),
                       .window = static_cast<unsigned long>(words[1])};
 }

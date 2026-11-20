@@ -23,6 +23,7 @@ struct MetalWindow {  // CAMetalLayer*
     if (handle.system() != WindowSystem::Metal) {
         return std::nullopt;
     }
+    // NOLINTNEXTLINE(performance-no-int-to-ptr): a native handle stored as a word
     return MetalWindow{.layer = reinterpret_cast<void*>(handle.words()[0])};
 }
 

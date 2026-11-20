@@ -27,7 +27,7 @@ using dvv::platform::XlibWindow;
 // A fake native pointer. From a std::uintptr_t, not an int literal: an int cast to a pointer is
 // C4312 under MSVC's /WX.
 void* fakePointer(std::uintptr_t value) {
-    return reinterpret_cast<void*>(value);
+    return reinterpret_cast<void*>(value);  // NOLINT(performance-no-int-to-ptr): a fake handle
 }
 
 }  // namespace

@@ -40,10 +40,12 @@ TEST_CASE("windowSystemOf names the window's alternative") {
 
 TEST_CASE("the variant overload matches the struct overloads") {
     // From a std::uintptr_t, not an int literal: an int cast to a pointer is C4312 under /WX.
+    // NOLINTBEGIN(performance-no-int-to-ptr): fake native handles made from words
     const Win32Window win32{.hinstance = reinterpret_cast<void*>(std::uintptr_t{0x10}),
                             .hwnd = reinterpret_cast<void*>(std::uintptr_t{0x20})};
     const XlibWindow xlib{.display = reinterpret_cast<void*>(std::uintptr_t{0x30}), .window = 0x31};
     const MetalWindow metal{.layer = reinterpret_cast<void*>(std::uintptr_t{0x40})};
+    // NOLINTEND(performance-no-int-to-ptr)
     CHECK(dvv::platform::windowHandleOf(NativeWindow{win32}) ==
           dvv::platform::windowHandleOf(win32));
     CHECK(dvv::platform::windowHandleOf(NativeWindow{xlib}) == dvv::platform::windowHandleOf(xlib));
