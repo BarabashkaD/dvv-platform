@@ -39,7 +39,10 @@ struct CrashHandlerOptions {
 // MiniDumpWriteDump missing, or no dump thread), it logs one Warn "crash dumps are off: <reason>"
 // and stays on: a crash writes the stderr lines and <stem>.dvvlog, and no <stem>.dmp. Install it
 // last among the process's fatal-signal handlers (macOS, Linux): one installed later replaces it;
-// one installed earlier runs after it. Throws only std::bad_alloc.
+// one installed earlier runs after it. On Windows it replaces an earlier SIGABRT handler, which
+// then never runs, and one installed later replaces it; each CRT instance has its own signal
+// table, so an abort() in a module with its own static CRT does not reach it. Throws only
+// std::bad_alloc.
 void installCrashHandler(const CrashHandlerOptions& options);
 
 // Test hook: reads the environment variable `variable` and crashes that way: "1" an access
@@ -47,7 +50,8 @@ void installCrashHandler(const CrashHandlerOptions& options);
 // overflow on this thread (Windows: exits 99 when installCrashHandler's stack guarantee is not in
 // effect on this thread, first writing "<app>: stack guarantee missing" on stderr when the handler
 // is on); "threads" four threads fault at once; "exit" a fault in a static destructor after main()
-// returns; "abort" std::abort(). Any other value, or no variable, returns.
+// returns; "abort" std::abort(); "terminate" std::terminate(). Any other value, or no variable,
+// returns.
 void crashIfRequested(std::string_view variable);
 
 }  // namespace dvv::platform

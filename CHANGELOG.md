@@ -47,9 +47,9 @@ GitHub Releases).
 - `dvv/platform/surface.h` (`surfaceInstanceExtensions`, `createSurface`): dvv-gpu creates its
   surfaces itself. The package's Vulkan-Headers dependency, the `VK_NO_PROTOTYPES` definition and
   the QuartzCore link go with it.
-- `NativeWindow`, `windowSystemOf()` and `windowHandleOf()`; the header `native_window.h`, and
-  reaching `PixelSize`, `WindowSystem` or the per-OS structs through it: include
-  `window_handle.h`, `pixel_size.h` and the per-OS header.
+- `NativeWindow`, `windowSystemOf()` and `windowHandleOf(const NativeWindow&)`; the header
+  `native_window.h`, and reaching `PixelSize`, `WindowSystem` or the per-OS structs through it:
+  include `window_handle.h`, `pixel_size.h` and the per-OS header.
 - `TestWindow::native()`: use `handle()`.
 - `LibrarySearch::DllDirectory`, kept as an alias of `LibraryDirectory`: use `LibraryDirectory`.
 

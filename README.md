@@ -120,7 +120,9 @@ install, so after a daylight saving change it is off by that change. At the next
 `<stem>.reported.dvvlog`. On macOS and Linux the handler takes SIGSEGV, SIGBUS, SIGILL, SIGFPE,
 SIGTRAP and SIGABRT on an alternate stack of the installing thread; a stack overflow on another
 thread ends the process without a snapshot. A handler for these signals installed before it runs
-after it; one installed later replaces it.
+after it; one installed later replaces it. On Windows it replaces an earlier SIGABRT handler,
+which then never runs, and one installed later replaces it; each CRT instance has its own signal
+table, so an `abort()` in a module with its own static CRT does not reach it.
 
 On Windows without `dbghelp.dll` or its `MiniDumpWriteDump` (or when the dump thread cannot
 start), the handler still installs: a crash writes the stderr lines and the snapshot, no `.dmp`,

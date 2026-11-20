@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <exception>
 #include <iterator>
 #include <optional>
 #include <span>
@@ -385,6 +386,8 @@ void crashNow(std::string_view mode) {
         exit_crash.armed.store(true);  // the process faults after main(), in the static destructors
     } else if (mode == "abort") {
         std::abort();
+    } else if (mode == "terminate") {
+        std::terminate();
     }
 }
 

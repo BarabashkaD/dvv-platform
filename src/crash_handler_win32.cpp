@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <span>
 #include <string>
 #include <string_view>
@@ -283,7 +284,7 @@ void writeDumpFile() noexcept {
     }
     // The faulting thread's id, not the dump thread's: the dump shows the crash as the exception.
     MINIDUMP_EXCEPTION_INFORMATION exception{state.faultingThreadId, state.pointers, FALSE};
-    const PMINIDUMP_EXCEPTION_INFORMATION exception_param =
+    MINIDUMP_EXCEPTION_INFORMATION* const exception_param =
         state.pointers != nullptr ? &exception : nullptr;
     const BOOL written = state.writeDump(GetCurrentProcess(), GetCurrentProcessId(), file,
                                          MiniDumpNormal, exception_param, nullptr, nullptr);
@@ -377,7 +378,8 @@ void onAbortSignal(int /*signal*/) {
         writeOwnedCrash(nullptr, self);
     }
     TerminateProcess(GetCurrentProcess(), ABORT_EXIT_CODE);
-    // Fallback: abort() goes on and ends the process with exit code 3 itself.
+    // Fallback, if TerminateProcess returns: abort() goes on to its own end, by default a fast fail
+    // to Windows Error Reporting (0xC0000409), not exit code 3.
 }
 
 // Copies `text` and a NUL into `target`; false when it does not fit.
@@ -529,10 +531,13 @@ void crashNow(std::string_view mode) {
         crashOnThreads();
     } else if (mode == "exit") {
         exit_crash.armed.store(true);  // the process faults after main(), in the static destructors
-    } else if (mode == "abort") {
+    } else if (mode == "abort" || mode == "terminate") {
         // A Debug CRT would show its abort message box before it raises SIGABRT.
         static_cast<void>(_set_abort_behavior(0, _WRITE_ABORT_MSG));
-        std::abort();
+        if (mode == "abort") {
+            std::abort();
+        }
+        std::terminate();
     }
 }
 

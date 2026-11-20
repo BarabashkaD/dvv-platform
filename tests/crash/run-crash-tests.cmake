@@ -147,13 +147,13 @@ endfunction()
 
 # ended_as_crash(<out>): whether the last run ended as a crash (macOS, Linux: a death by one of the
 # crash signals, which execute_process reports as its signal text; Windows: the exception code of
-# the mode, as a text, as hex or as an unsigned or signed decimal, or exit code 3 for "abort"). Any
-# other text, such as execute_process's "no such file or directory", is not a crash.
+# the mode, as a text, as hex or as an unsigned or signed decimal, or exit code 3 for "abort" and
+# "terminate"). Any other text, such as execute_process's "no such file or directory", is not a crash.
 function(ended_as_crash out)
     set(crashed FALSE)
     if(run_result MATCHES "[Tt]imeout")
         set(crashed FALSE)
-    elseif(CMAKE_HOST_WIN32 AND run_mode STREQUAL "abort")
+    elseif(CMAKE_HOST_WIN32 AND run_mode MATCHES "^(abort|terminate)$")
         if(run_result STREQUAL "3")
             set(crashed TRUE)
         endif()
@@ -199,7 +199,7 @@ function(check_crash out_stem)
         problem("the process did not end as a crash")
     endif()
     set(mode_cause_regex "${cause_regex}")
-    if(CMAKE_HOST_WIN32 AND run_mode STREQUAL "abort")
+    if(CMAKE_HOST_WIN32 AND run_mode MATCHES "^(abort|terminate)$")
         set(mode_cause_regex "${abort_cause_regex}")
     endif()
     count_lines(causes "${run_stderr}" "${mode_cause_regex}")
@@ -287,9 +287,9 @@ function(check_off)
     check_no_crashes_folder()
 endfunction()
 
-# 1. Each mode crashes with its lines and files (Windows "abort": exit code 3, "crash abort" and
-# a dump without an exception record).
-set(modes 1 stack threads exit abort)
+# 1. Each mode crashes with its lines and files (Windows "abort" and "terminate": exit code 3,
+# "crash abort" and a dump without an exception record; macOS, Linux: both end by SIGABRT).
+set(modes 1 stack threads exit abort terminate)
 foreach(mode IN LISTS modes)
     fresh_case("mode-${mode}")
     run_child("mode-${mode}" "${mode}")
