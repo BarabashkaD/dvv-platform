@@ -1,5 +1,6 @@
 #pragma once
 
+// Deprecated: dvv-gpu creates its surfaces itself; removed in 1.0.0.
 // Vulkan surfaces for native windows (spec §10.4). Vulkan C types only, without prototypes
 // (VK_NO_PROTOTYPES): every function comes through vkGetInstanceProcAddr. Results stay VkResult;
 // dvv-gpu converts them to dvv::Error in one place.
@@ -13,7 +14,8 @@
 
 namespace dvv::platform {
 
-// {"VK_KHR_surface", "VK_KHR_win32_surface"} or {"VK_KHR_surface", "VK_KHR_xlib_surface"}.
+// {"VK_KHR_surface", "VK_KHR_win32_surface"}, {"VK_KHR_surface", "VK_KHR_xlib_surface"} or
+// {"VK_KHR_surface", "VK_EXT_metal_surface"}.
 [[nodiscard]] std::span<const char* const> surfaceInstanceExtensions(WindowSystem system) noexcept;
 // Through vkGetInstanceProcAddr(instance, "vkCreate...SurfaceKHR"). Errors:
 // VK_ERROR_EXTENSION_NOT_PRESENT (function unavailable: extension not enabled, or a window system

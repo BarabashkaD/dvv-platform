@@ -73,6 +73,8 @@ dvv_set_compiler_options(dvv_platform)
 # Native test windows for the display tests of dvv-platform, dvv-gpu and rawreel (spec §12).
 # Installed and exported: a stand-alone dvv-gpu build may use an installed dvv_platform.
 add_library(dvv_platform_testing STATIC)
+# ARC: dvv_os_sources compiles each .mm with -fobjc-arc; the window and view are strong references
+# owned by the test window state.
 dvv_os_sources(dvv_platform_testing src/testing/test_window)
 add_library(dvv::platform_testing ALIAS dvv_platform_testing)
 set_target_properties(dvv_platform_testing PROPERTIES EXPORT_NAME platform_testing)
