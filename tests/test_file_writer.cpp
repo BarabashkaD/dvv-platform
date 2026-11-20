@@ -244,8 +244,11 @@ TEST_SUITE("file_writer") {
     TEST_CASE("an exception after the create removes the temporary") {
         const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
         const fs::path target = targetWithMode(dir.path(), MODE_0640);
-        CHECK_THROWS_AS(static_cast<void>(replaceUnderMask(target, 077, throwingSetter)),
-                        std::bad_alloc);
+        const auto replace = [&target] {
+            const auto result = replaceUnderMask(target, 077, throwingSetter);
+            CHECK_FALSE(result.has_value());  // not reached: the setter throws
+        };
+        CHECK_THROWS_AS(replace(), std::bad_alloc);
         CHECK(mode_setter_calls.load() == 1);
         CHECK(readFile(target) == "old");
         CHECK_FALSE(hasTemporary(dir.path()));
