@@ -47,6 +47,7 @@ TEST_CASE("a test window reports, changes and restores its client size") {
     // A moved-from TestWindow is documented to describe no window; that state is under test.
     // NOLINTNEXTLINE(bugprone-use-after-move)
     CHECK(std::holds_alternative<std::monostate>(window.native()));
-    // NOLINTNEXTLINE(bugprone-use-after-move): the moved-from state is under test.
+    // The moved-from state is under test.
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     CHECK(window.handle().empty());
 }

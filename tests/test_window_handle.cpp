@@ -67,9 +67,11 @@ TEST_SUITE("window_handle") {
         const WindowHandle win32_handle = dvv::platform::windowHandleOf(win32);
         CHECK(win32_handle.system() == WindowSystem::Win32);
         const std::optional<Win32Window> win32_back = dvv::platform::win32WindowOf(win32_handle);
-        REQUIRE(win32_back.has_value());
-        CHECK(win32_back->hinstance == win32.hinstance);
-        CHECK(win32_back->hwnd == win32.hwnd);
+        CHECK(win32_back.has_value());
+        if (win32_back) {
+            CHECK(win32_back->hinstance == win32.hinstance);
+            CHECK(win32_back->hwnd == win32.hwnd);
+        }
 
         // The widest XID the platform's unsigned long holds: 48 bits on LP64, 32 bits on LLP64.
         const auto xid = static_cast<unsigned long>(
@@ -78,17 +80,21 @@ TEST_SUITE("window_handle") {
         const WindowHandle xlib_handle = dvv::platform::windowHandleOf(xlib);
         CHECK(xlib_handle.system() == WindowSystem::Xlib);
         const std::optional<XlibWindow> xlib_back = dvv::platform::xlibWindowOf(xlib_handle);
-        REQUIRE(xlib_back.has_value());
-        CHECK(xlib_back->display == xlib.display);
-        CHECK(xlib_back->window == xid);
+        CHECK(xlib_back.has_value());
+        if (xlib_back) {
+            CHECK(xlib_back->display == xlib.display);
+            CHECK(xlib_back->window == xid);
+        }
 
         const MetalWindow metal{.layer = fakePointer(0x40)};
         const WindowHandle metal_handle = dvv::platform::windowHandleOf(metal);
         CHECK(metal_handle.system() == WindowSystem::Metal);
         CHECK(metal_handle.words() == WindowHandle::Words{0x40, 0});
         const std::optional<MetalWindow> metal_back = dvv::platform::metalWindowOf(metal_handle);
-        REQUIRE(metal_back.has_value());
-        CHECK(metal_back->layer == metal.layer);
+        CHECK(metal_back.has_value());
+        if (metal_back) {
+            CHECK(metal_back->layer == metal.layer);
+        }
     }
 
     TEST_CASE("reading another system's handle gives nullopt") {
