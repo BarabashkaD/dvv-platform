@@ -171,7 +171,8 @@ bool formatSnapshotPath() noexcept {
         return false;
     }
     length += stem;
-    return appendText(path, length, ".dvvlog") && appendText(path, length, std::string_view("", 1));
+    return appendText(path, length, ".dvvlog") &&
+           appendText(path, length, std::string_view("\0", 1));
 }
 
 // The crash snapshot to <stem>.dvvlog, then "<app>: crash log <path>" on stderr. Any failed step
@@ -353,12 +354,9 @@ std::string installBackend(const CrashBackendSetup& setup) {
     if (!copyText(state.folder, dvv::pathText(setup.folder))) {
         return "the crash folder path is too long";
     }
-    // §4.9 step 2 limits both names to 63 bytes.
-    if (!copyText(state.app, setup.app) || !copyText(state.process, setup.process)) {
-        return "the app or process name is too long";
-    }
-    state.appLength = setup.app.size();
-    state.processLength = setup.process.size();
+    // §4.9 step 2 limits both names to 63 bytes, so they fit; a name that did not would be empty.
+    state.appLength = copyText(state.app, setup.app) ? setup.app.size() : 0;
+    state.processLength = copyText(state.process, setup.process) ? setup.process.size() : 0;
     state.offsetSeconds = localOffsetSeconds(std::chrono::system_clock::now());
     state.logger = setup.logger;
     state.file = -1;

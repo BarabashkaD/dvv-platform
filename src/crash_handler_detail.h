@@ -1,4 +1,3 @@
-// src/crash_handler_detail.h (private; dvv_platform_tests include src/)
 #pragma once
 
 #include <cstddef>

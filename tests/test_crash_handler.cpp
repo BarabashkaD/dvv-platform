@@ -247,9 +247,11 @@ TEST_SUITE("crash_handler") {
         action.sa_flags = SA_SIGINFO;
         sigemptyset(&action.sa_mask);
         struct sigaction previous{};
+        captured = siginfo_t{};
         REQUIRE(::sigaction(SIGUSR1, &action, &previous) == 0);
         REQUIRE(::pthread_kill(::pthread_self(), SIGUSR1) == 0);  // delivered before it returns
         ::sigaction(SIGUSR1, &previous, nullptr);
+        CHECK(captured.si_signo == SIGUSR1);  // the handler ran
         CHECK(signalWasSent(SIGSEGV, captured));
     }
 }
