@@ -30,6 +30,7 @@
 #endif
 
 #include "dvv/base/error.h"
+#include "dvv/base/utf8.h"
 #include "dvv/platform/file_writer.h"
 #include "file_writer_detail.h"
 #if defined(_WIN32)
@@ -61,6 +62,11 @@ void writeBytes(const fs::path& path, std::string_view text) {
     REQUIRE(stream.is_open());
     stream.write(text.data(), static_cast<std::streamsize>(text.size()));
     REQUIRE(stream.good());
+}
+
+// The start of every Errc::Io message of replaceFile for `target`.
+std::string failurePrefix(const fs::path& target) {
+    return "replacing '" + dvv::pathDisplayText(target) + "' failed: ";
 }
 
 // Whether `folder` holds a directory entry whose name ends in ".tmp".
@@ -303,11 +309,13 @@ TEST_SUITE("file_writer") {
 
     TEST_CASE("replaceFile fails in a missing folder") {
         const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
-        const auto result = replaceFile(dir.path() / "missing" / "a.json", bytesOf("x"));
+        const fs::path target = dir.path() / "missing" / "a.json";
+        const auto result = replaceFile(target, bytesOf("x"));
         CHECK_FALSE(result.has_value());
         if (!result) {
             CHECK(result.error().code == dvv::Errc::Io);
-            CHECK(result.error().message.starts_with("cannot create a temporary file: "));
+            CHECK(result.error().message.starts_with(failurePrefix(target) +
+                                                     "cannot create a temporary file: "));
         }
         CHECK_FALSE(fs::exists(dir.path() / "missing"));
     }
@@ -320,7 +328,7 @@ TEST_SUITE("file_writer") {
         CHECK_FALSE(refused_folder.has_value());
         if (!refused_folder) {
             CHECK(refused_folder.error().code == dvv::Errc::Io);
-            CHECK(refused_folder.error().message.contains("is not a regular file"));
+            CHECK(refused_folder.error().message == failurePrefix(folder) + "not a regular file");
         }
         CHECK(fs::is_directory(folder));
 #if !defined(_WIN32)
@@ -332,7 +340,7 @@ TEST_SUITE("file_writer") {
         CHECK_FALSE(refused_link.has_value());
         if (!refused_link) {
             CHECK(refused_link.error().code == dvv::Errc::Io);
-            CHECK(refused_link.error().message.contains("is not a regular file"));
+            CHECK(refused_link.error().message == failurePrefix(link) + "not a regular file");
         }
         CHECK(fs::is_symlink(fs::symlink_status(link)));
         CHECK(readFile(file) == "file");
@@ -378,7 +386,8 @@ TEST_SUITE("file_writer") {
         CHECK_FALSE(result.has_value());
         if (!result) {
             CHECK(result.error().code == dvv::Errc::Io);
-            CHECK(result.error().message.starts_with("cannot replace the file: "));
+            CHECK(result.error().message.starts_with(failurePrefix(target) +
+                                                     "cannot replace the file: "));
         }
         CHECK(readFile(target) == "old");
         CHECK_FALSE(hasTemporary(dir.path()));

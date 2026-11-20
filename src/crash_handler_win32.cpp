@@ -39,7 +39,7 @@ constexpr std::size_t FOLDER_CAPACITY = 1024;  // a longer crash folder path: th
 constexpr std::size_t NAME_CAPACITY = 64;      // app and process: 1 to 63 bytes
 // <process>-<yyyymmdd-hhmmss>-<pid>: at most 63 + 1 + 8 + 1 + 6 + 1 + 10 bytes.
 constexpr std::size_t STEM_CAPACITY = 128;
-// <folder>\<stem>.dvvlog or .dmp and a NUL.
+// <folder>\<stem>.dvvlog.part, .dvvlog or .dmp and a NUL.
 constexpr std::size_t PATH_CAPACITY = FOLDER_CAPACITY + STEM_CAPACITY;
 constexpr std::size_t UTF8_CAPACITY = 4 * PATH_CAPACITY;
 constexpr std::size_t LINE_CAPACITY = NAME_CAPACITY + UTF8_CAPACITY + 32;
@@ -82,7 +82,8 @@ struct CrashState {
     char buffer[WRITE_BUFFER_BYTES];
     char stem[STEM_CAPACITY];
     std::size_t stemLength;
-    wchar_t path[PATH_CAPACITY];
+    wchar_t path[PATH_CAPACITY];      // <folder>\<stem>.dvvlog or .dmp, NUL-terminated
+    wchar_t partPath[PATH_CAPACITY];  // <folder>\<stem>.dvvlog.part, the snapshot while written
     char utf8[UTF8_CAPACITY];
     char line[LINE_CAPACITY];
 };
@@ -193,9 +194,8 @@ bool formatStem() noexcept {
     return fits;
 }
 
-// <folder>\<stem><extension> and a NUL into the path buffer; false when it does not fit.
-bool formatPath(std::string_view extension) noexcept {
-    const std::span<wchar_t> path(state.path);
+// <folder>\<stem><extension> and a NUL into `path`; false when it does not fit.
+bool formatPath(std::span<wchar_t> path, std::string_view extension) noexcept {
     std::size_t length = 0;
     const auto append = [&](wchar_t c) {
         if (length >= path.size()) {
@@ -247,13 +247,15 @@ void writePathLine(std::string_view what) noexcept {
     }
 }
 
-// The logger's crash snapshot to <stem>.dvvlog, then "<app>: crash log <path>". A failure skips
-// the rest of this file only.
+// The logger's crash snapshot to <stem>.dvvlog.part, renamed to <stem>.dvvlog once it is written
+// (so the report of a process that starts meanwhile never sees it half written), then "<app>:
+// crash log <path>". A failure skips the rest of this file only.
 void writeSnapshotFile() noexcept {
-    if (state.logger == nullptr || !formatPath(".dvvlog")) {
+    if (state.logger == nullptr || !formatPath(state.partPath, ".dvvlog.part") ||
+        !formatPath(state.path, ".dvvlog")) {
         return;
     }
-    state.file = CreateFileW(state.path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+    state.file = CreateFileW(state.partPath, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
                              FILE_ATTRIBUTE_NORMAL, nullptr);
     if (state.file == INVALID_HANDLE_VALUE) {
         return;
@@ -264,7 +266,10 @@ void writeSnapshotFile() noexcept {
     flushBuffer(state);
     const bool closed = CloseHandle(state.file) != FALSE;
     state.file = INVALID_HANDLE_VALUE;
-    if (!state.writeFailed && closed) {
+    // Renamed also after a failed write: the next start reports a cut-short snapshot as well.
+    // Without MOVEFILE_REPLACE_EXISTING the move never replaces another file.
+    const bool renamed = MoveFileExW(state.partPath, state.path, 0) != FALSE;
+    if (!state.writeFailed && closed && renamed) {
         writePathLine("crash log");
     }
 }
@@ -274,7 +279,7 @@ void writeSnapshotFile() noexcept {
 // the rest of this file only. Nothing without MiniDumpWriteDump (installBackend's "crash dumps are
 // off").
 void writeDumpFile() noexcept {
-    if (state.writeDump == nullptr || !formatPath(".dmp")) {
+    if (state.writeDump == nullptr || !formatPath(state.path, ".dmp")) {
         return;
     }
     const HANDLE file = CreateFileW(state.path, GENERIC_WRITE, 0, nullptr, CREATE_NEW,

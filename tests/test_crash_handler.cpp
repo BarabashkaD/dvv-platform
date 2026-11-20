@@ -14,6 +14,7 @@
 #if !defined(_WIN32)
 #include <pthread.h>
 #include <signal.h>
+#include <unistd.h>
 #endif
 
 #include "crash_handler_detail.h"
@@ -142,6 +143,8 @@ TEST_SUITE("crash_handler") {
         CHECK_FALSE(
             isSnapshotName("rawreel-gui-20261120-101500-12345678901.dvvlog", "rawreel-gui"));
         CHECK(isSnapshotName("rawreel-gui-20261120-101500-1234567890.dvvlog", "rawreel-gui"));
+        // A snapshot the handler is still writing.
+        CHECK_FALSE(isSnapshotName("rawreel-gui-20261120-101500-42.dvvlog.part", "rawreel-gui"));
     }
 
     TEST_CASE("formatCrashStem") {
@@ -224,6 +227,16 @@ TEST_SUITE("crash_handler") {
         CHECK(fs::exists(other));
     }
 
+    TEST_CASE("a snapshot still being written is not reported") {
+        const dvv::platform::test::TemporaryDirectory dir("dvv-crash-handler");
+        const dvv::platform::test::LoggerScope log;
+        const fs::path part = dir.path() / (stemAt(0) + ".dvvlog.part");
+        writeBytes(part, emptySnapshot());
+        reportEarlierSnapshots(dir.path(), "p", 8);
+        CHECK(log.count("an earlier run") == 0);
+        CHECK(fs::exists(part));
+    }
+
     TEST_CASE("a missing crashes folder is left alone") {
         const dvv::platform::test::TemporaryDirectory dir("dvv-crash-handler");
         const dvv::platform::test::LoggerScope log;
@@ -271,6 +284,24 @@ TEST_SUITE("crash_handler") {
         info.si_code = SI_KERNEL;
         CHECK_FALSE(faultRepeats(SIGTRAP, info));
 #endif
+    }
+
+    TEST_CASE("a snapshot in a read-only folder gets one line and stays") {
+        if (::geteuid() == 0) {
+            MESSAGE("skipped: root renames in a read-only folder");
+            return;
+        }
+        const dvv::platform::test::TemporaryDirectory dir("dvv-crash-handler");
+        const dvv::platform::test::LoggerScope log;
+        const fs::path snapshot = dir.path() / (stemAt(0) + ".dvvlog");
+        writeBytes(snapshot, emptySnapshot());
+        fs::permissions(dir.path(), fs::perms::owner_read | fs::perms::owner_exec);
+        reportEarlierSnapshots(dir.path(), "p", 8);
+        fs::permissions(dir.path(), fs::perms::owner_all);  // so the folder can be removed
+        CHECK(log.count("an earlier run left a crash log that cannot be renamed (") == 1);
+        CHECK(log.count(HEADER) == 0);
+        CHECK(fs::exists(snapshot));
+        CHECK_FALSE(fs::exists(dir.path() / (stemAt(0) + ".reported.dvvlog")));
     }
 
     TEST_CASE("pthread_kill counts as sent") {

@@ -36,7 +36,7 @@ namespace {
 
 constexpr std::size_t FOLDER_CAPACITY = 1024;  // a longer crash folder path: the handler is off
 constexpr std::size_t NAME_CAPACITY = 64;      // app and process: 1 to 63 bytes
-// <folder>/<stem>.dvvlog: the stem is the process, 15 bytes of time, a pid and three dashes.
+// <folder>/<stem>.dvvlog.part: the stem is the process, 15 bytes of time, a pid and three dashes.
 constexpr std::size_t PATH_CAPACITY = FOLDER_CAPACITY + 128;
 constexpr std::size_t LINE_CAPACITY = NAME_CAPACITY + PATH_CAPACITY + 64;
 constexpr std::size_t WRITE_BUFFER_BYTES = std::size_t{64} * 1024;
@@ -62,7 +62,8 @@ struct CrashState {
     bool writeFailed;
     std::size_t buffered;
     char buffer[WRITE_BUFFER_BYTES];
-    char path[PATH_CAPACITY];
+    char path[PATH_CAPACITY];      // <folder>/<stem>.dvvlog, NUL-terminated
+    char partPath[PATH_CAPACITY];  // <folder>/<stem>.dvvlog.part, the file while it is written
     char line[LINE_CAPACITY];
     struct sigaction previous[SIGNAL_COUNT];
     alignas(16) char alternateStack[ALTERNATE_STACK_BYTES];
@@ -136,8 +137,9 @@ void makeFolders() noexcept {
     static_cast<void>(::mkdir(state.folder, 0700));
 }
 
-// <folder>/<stem>.dvvlog for the crash time into the path buffer; false when it does not fit.
-bool formatSnapshotPath() noexcept {
+// <folder>/<stem>.dvvlog for the crash time into the path buffer and the same with ".part" into
+// the part path buffer; false when they do not fit.
+bool formatSnapshotPaths() noexcept {
     timespec now{};
     if (::clock_gettime(CLOCK_REALTIME, &now) != 0) {
         return false;
@@ -160,19 +162,26 @@ bool formatSnapshotPath() noexcept {
         return false;
     }
     length += stem;
-    return appendText(path, length, ".dvvlog") &&
+    if (!appendText(path, length, ".dvvlog")) {
+        return false;
+    }
+    std::size_t part_length = 0;
+    return appendText(state.partPath, part_length, std::string_view(state.path, length)) &&
+           appendText(state.partPath, part_length, ".part") &&
+           appendText(state.partPath, part_length, std::string_view("\0", 1)) &&
            appendText(path, length, std::string_view("\0", 1));
 }
 
-// The crash snapshot to <stem>.dvvlog, then "<app>: crash log <path>" on stderr. Any failed step
-// skips the rest of this file work.
+// The crash snapshot to <stem>.dvvlog.part, renamed to <stem>.dvvlog once it is written (so the
+// report of a process that starts meanwhile never reads it half written), then "<app>: crash log
+// <path>" on stderr. Any failed step skips the rest of this file work.
 void writeSnapshotFile() noexcept {
-    if (state.logger == nullptr || !formatSnapshotPath()) {
+    if (state.logger == nullptr || !formatSnapshotPaths()) {
         return;
     }
     makeFolders();
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg): open(2) is variadic
-    state.file = ::open(state.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    state.file = ::open(state.partPath, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
     if (state.file < 0) {
         return;
     }
@@ -182,7 +191,9 @@ void writeSnapshotFile() noexcept {
     flushBuffer();
     const bool closed = ::close(state.file) == 0;
     state.file = -1;
-    if (state.writeFailed || !closed) {
+    // Renamed also after a failed write: the next start reports a cut-short snapshot as well.
+    const bool renamed = ::rename(state.partPath, state.path) == 0;
+    if (state.writeFailed || !closed || !renamed) {
         return;
     }
     const std::span<char> line(state.line);

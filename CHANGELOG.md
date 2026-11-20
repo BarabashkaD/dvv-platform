@@ -15,7 +15,8 @@ GitHub Releases).
   flush (`FileDurability`), retries on Windows (sharing and lock violations, access denied, 1175,
   an existing name for a new target, and `ERROR_FILE_NOT_FOUND` for an existing target another
   writer's replace has briefly moved away) and what happens to the temporary file when Windows
-  loses the target (`LostTarget`).
+  loses the target (`LostTarget`). Its errors name the target: "replacing '<target>' failed:
+  <reason>".
 - `libraryFileName(name, major)` in `dynamic_library.h`: "avutil-60.dll", "libavutil.60.dylib",
   "libavutil.so.60".
 - `LibrarySearch::LibraryDirectory`: the mode `DllDirectory` named for what it does on every OS.
@@ -36,8 +37,8 @@ GitHub Releases).
   snapshot, then the system's crash report or core dump follows; a second crashing thread waits
   for the first one's files, then its signal takes its course under the restored action (a
   hardware fault faults again; SIGTRAP, SIGABRT and a sent signal are raised again). stderr names
-  the cause and the files. The next start logs the snapshots of earlier crashed runs. No logger
-  call after a crash.
+  the cause and the files. A snapshot is named `.dvvlog` only once written. The next start logs
+  the snapshots of earlier crashed runs. No logger call after a crash.
 
 ### Changed
 - Requires dvv-base 0.5.0 and dvv-build 0.5.1. A dependent that moves to dvv-platform 0.3.0 also

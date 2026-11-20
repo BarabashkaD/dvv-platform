@@ -84,15 +84,23 @@ constexpr CivilDate civilFromDays(std::int64_t days) noexcept {
 
 // Logs and renames one snapshot file; nothing when another process renamed it first.
 void reportSnapshot(const std::filesystem::path& file) {
+    dvv::Logger& logger = dvv::Logger::instance();
     std::filesystem::path reported = file;
     reported.replace_extension();
     reported += std::filesystem::path(REPORTED_EXTENSION);
     std::error_code rename_error;
     std::filesystem::rename(file, reported, rename_error);
     if (rename_error) {
-        return;  // another process claimed it
+        // The file is gone: another process claimed it. Any other failure (a read-only folder)
+        // leaves it unreported, so it says so.
+        if (rename_error != std::errc::no_such_file_or_directory) {
+            logger.write(dvv::LogLevel::Info,
+                         std::format("an earlier run left a crash log that cannot be renamed "
+                                     "({}): {}",
+                                     dvv::pathDisplayText(file), rename_error.message()));
+        }
+        return;
     }
-    dvv::Logger& logger = dvv::Logger::instance();
     const std::string shown = dvv::pathDisplayText(reported);
     const auto unreadable = [&](const dvv::Error& error) {
         logger.write(dvv::LogLevel::Info,

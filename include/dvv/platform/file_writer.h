@@ -51,12 +51,13 @@ struct ReplaceFileOptions {
 // all `retries` attempts. The temporary file is removed on every failure, except a lost target
 // with LostTarget::KeepTemporary.
 //
-// Errc::Io with the reason: "'<target>' is not a regular file", "cannot read the file's status:
-// …", "cannot create a temporary file: …", "cannot set the permissions: …", "cannot write: …",
-// "cannot flush: …", "cannot create the file: …" (Windows, a new target), "cannot replace the
-// file: …", and for a kept temporary file "cannot replace the file: …; the new contents are in
-// <temporary path>". Errc::Internal "replaceFile: '<target>' names no file" for a path without a
-// file name. Paths in messages are display text (dvv::pathDisplayText). Thread-safe: no shared
+// Errc::Io "replacing '<target>' failed: <reason>", the reason one of: "not a regular file",
+// "cannot read the file's status: …", "cannot create a temporary file: …", "cannot set the
+// permissions: …", "cannot write: …", "cannot flush: …", "cannot create the file: …" (Windows, a
+// new target), "cannot replace the file: …", and for a kept temporary file "cannot replace the
+// file: …; the new contents are in <temporary path>". Errc::Internal "replaceFile: '<target>'
+// names no file" for a path without a file name. Paths in messages are display text
+// (dvv::pathDisplayText). Thread-safe: no shared
 // state; concurrent calls on one target leave one complete file (the last replace wins). Throws
 // only std::bad_alloc.
 [[nodiscard]] Result<void> replaceFile(const std::filesystem::path& target,

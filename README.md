@@ -70,7 +70,8 @@ Target `dvv::platform` (namespace `dvv::platform`):
   temporary file in the target's folder and replaces the target with it. `ReplaceFileOptions` sets
   `durability` (`FileDurability`: flush before the replace or not), `retries` and `retryDelay`
   (Windows) and `lostTarget` (`LostTarget`: what happens to the temporary file when Windows loses
-  the target). Errors are `Errc::Io`, or `Errc::Internal` for a path without a file name.
+  the target). Errors are `Errc::Io` "replacing '<target>' failed: <reason>", or `Errc::Internal`
+  for a path without a file name.
 - `dvv/platform/crash_handler.h`: `installCrashHandler(options)` (below) and the test hook
   `crashIfRequested(variable)`.
 
@@ -174,7 +175,11 @@ the log records that had not reached the sinks yet (asynchronous logging) and th
 The time in the names is local time at the crash; on macOS and Linux it uses the offset at
 install, so after a daylight saving change it is off by that change. At the next start of the same
 `process`, `installCrashHandler` logs each earlier snapshot at Info and renames it to
-`<stem>.reported.dvvlog`. On macOS and Linux the handler takes SIGSEGV, SIGBUS, SIGILL, SIGFPE,
+`<stem>.reported.dvvlog`; a snapshot it cannot rename stays and gets one Info line "an earlier run
+left a crash log that cannot be renamed (<path>): <reason>". The handler writes the snapshot as
+`<stem>.dvvlog.part` and renames it to `<stem>.dvvlog` once written, so a process that starts
+while another one is still crashing never reports a half-written file; a crash inside the
+handler can leave the `.part` file, which is not reported. On macOS and Linux the handler takes SIGSEGV, SIGBUS, SIGILL, SIGFPE,
 SIGTRAP and SIGABRT on an alternate stack of the installing thread; a stack overflow on another
 thread ends the process without a snapshot. A handler for these signals installed before it runs
 after it; one installed later replaces it. On Windows it replaces an earlier SIGABRT handler,

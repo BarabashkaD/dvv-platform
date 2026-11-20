@@ -53,13 +53,11 @@ std::filesystem::path temporaryName(const std::filesystem::path& target, std::ui
 
 }  // namespace detail
 
-Result<void> replaceFile(const std::filesystem::path& target, std::span<const std::byte> bytes,
-                         const ReplaceFileOptions& options) {
-    if (!target.has_filename()) {
-        return makeError(Errc::Internal,
-                         std::format("replaceFile: '{}' names no file", pathDisplayText(target)));
-    }
+namespace {
 
+// Steps 2 to 6 for a target with a file name; an error message is the reason only.
+Result<void> replaceNamedFile(const std::filesystem::path& target, std::span<const std::byte> bytes,
+                              const ReplaceFileOptions& options) {
     // The type first: a missing target is not_found with `error` also set (libstdc++, MSVC).
     std::error_code error;
     const std::filesystem::file_status status = std::filesystem::symlink_status(target, error);
@@ -70,8 +68,7 @@ Result<void> replaceFile(const std::filesystem::path& target, std::span<const st
     }
     const bool target_exists = type != std::filesystem::file_type::not_found;
     if (target_exists && type != std::filesystem::file_type::regular) {
-        return makeError(Errc::Io,
-                         std::format("'{}' is not a regular file", pathDisplayText(target)));
+        return makeError(Errc::Io, "not a regular file");
     }
 
     DVV_TRY(const auto randoms, nameRandoms());
@@ -87,6 +84,25 @@ Result<void> replaceFile(const std::filesystem::path& target, std::span<const st
         return std::unexpected(std::move(written.error().error));
     }
     return {};
+}
+
+}  // namespace
+
+Result<void> replaceFile(const std::filesystem::path& target, std::span<const std::byte> bytes,
+                         const ReplaceFileOptions& options) {
+    if (!target.has_filename()) {
+        return makeError(Errc::Internal,
+                         std::format("replaceFile: '{}' names no file", pathDisplayText(target)));
+    }
+    Result<void> replaced = replaceNamedFile(target, bytes, options);
+    if (!replaced) {
+        // Every message names the target, as FileReader's and DynamicLibrary's do; the error keeps
+        // the place where the reason was found.
+        Error& error = replaced.error();
+        error.message =
+            std::format("replacing '{}' failed: {}", pathDisplayText(target), error.message);
+    }
+    return replaced;
 }
 
 }  // namespace dvv::platform

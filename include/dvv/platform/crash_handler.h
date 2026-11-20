@@ -26,13 +26,17 @@ struct CrashHandlerOptions {
 //   <number>" on stderr; the crash snapshot to <stem>.dvvlog, then "<app>: crash log <path>"; then
 //   the signal takes its course under the action that was installed before (by default the
 //   system's crash report on macOS, a core dump where Linux enables them).
-// The time in <stem> is the crash time. The crashes folder and every missing folder above it are
-// created at the first crash, so a run without a crash creates nothing.
+// The snapshot is written as <stem>.dvvlog.part and renamed to <stem>.dvvlog once written, so a
+// .dvvlog file is never half written; a crash inside the handler can leave the .part file, which
+// is never reported. The time in <stem> is the crash time. The crashes folder and every missing
+// folder above it are created at the first crash, so a run without a crash creates nothing.
 //
 // At the call it also logs, at Info, the crash snapshots that earlier runs of the same `process`
 // left in the folder (at most 8, oldest first): one line naming the file, then each decoded
 // record. A reported <stem>.dvvlog is renamed to <stem>.reported.dvvlog, so each is reported once,
-// also when two processes start at the same moment.
+// also when two processes start at the same moment. One that cannot be renamed (a read-only
+// folder) is not read; it gets one Info line "an earlier run left a crash log that cannot be
+// renamed (<path>): <reason>".
 //
 // When it cannot install, it logs one Warn "crash handler is off: <reason>" and the process runs
 // without it. On Windows, when it can install but cannot write minidumps (dbghelp.dll or its

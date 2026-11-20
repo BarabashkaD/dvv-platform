@@ -230,6 +230,11 @@ function(check_crash out_stem)
     file(GLOB snapshots LIST_DIRECTORIES false RELATIVE "${case_dir}/${crashes_folder}"
          "${case_dir}/${crashes_folder}/*.dvvlog")
     list(LENGTH snapshots snapshot_count)
+    # The snapshot is written as <stem>.dvvlog.part and renamed once written.
+    file(GLOB parts LIST_DIRECTORIES false "${case_dir}/${crashes_folder}/*.part")
+    if(parts)
+        problem("the crashes folder has .part files: ${parts}")
+    endif()
     if(NOT snapshot_count EQUAL 1)
         problem("the crashes folder has ${snapshot_count} .dvvlog files, expected 1")
     else()
