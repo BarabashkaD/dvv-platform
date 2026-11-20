@@ -1,6 +1,4 @@
 #include <algorithm>
-#include <climits>
-#include <cstddef>
 #include <format>
 #include <optional>
 #include <string>
@@ -8,27 +6,13 @@
 
 #include <windows.h>
 
+#include "dvv/base/utf8.h"
+#include "dvv/base/utf8_win32.h"
 #include "dynamic_library_detail.h"
 
 namespace dvv::platform::detail {
 
 namespace {
-
-// UTF-8 to UTF-16; nullopt for invalid UTF-8.
-std::optional<std::wstring> widen(std::string_view text) {
-    if (text.size() > static_cast<std::size_t>(INT_MAX)) {
-        return std::nullopt;
-    }
-    const int length = static_cast<int>(text.size());
-    const int size =
-        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), length, nullptr, 0);
-    if (size <= 0) {
-        return std::nullopt;
-    }
-    std::wstring wide(static_cast<std::size_t>(size), L'\0');
-    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), length, wide.data(), size);
-    return wide;
-}
 
 bool isSlash(char c) noexcept {
     return c == '/' || c == '\\';
@@ -52,13 +36,7 @@ std::string win32ErrorMessage(DWORD code) {
         nullptr, code, 0, reinterpret_cast<wchar_t*>(&buffer), 0, nullptr);
     std::string text;
     if (length > 0 && buffer != nullptr) {
-        const int size = WideCharToMultiByte(CP_UTF8, 0, buffer, static_cast<int>(length), nullptr,
-                                             0, nullptr, nullptr);
-        if (size > 0) {
-            text.resize(static_cast<std::size_t>(size));
-            WideCharToMultiByte(CP_UTF8, 0, buffer, static_cast<int>(length), text.data(), size,
-                                nullptr, nullptr);
-        }
+        text = dvv::utf8FromWide(std::wstring_view(buffer, length)).value_or("");
     }
     if (buffer != nullptr) {
         LocalFree(buffer);
@@ -71,12 +49,11 @@ std::string win32ErrorMessage(DWORD code) {
 }
 
 void* loadLibrary(const std::string& name, LibrarySearch search, std::string& error) {
-    const auto wide = widen(name);
-    if (!wide) {
+    if (!dvv::isValidUtf8(name)) {
         error = "the name is not valid UTF-8";
         return nullptr;
     }
-    std::wstring path = *wide;
+    std::wstring path = dvv::wideFromUtf8(name);
     DWORD flags = 0;
     switch (search) {
         case LibrarySearch::Default: break;

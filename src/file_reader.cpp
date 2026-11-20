@@ -16,6 +16,7 @@
 
 #include "dvv/base/error.h"
 #include "dvv/base/log.h"
+#include "dvv/base/utf8.h"
 #include "file_reader_detail.h"
 
 namespace dvv::platform {
@@ -58,8 +59,8 @@ FileReader adopt(HandleGuard& guard, const std::filesystem::path& path, std::uin
 Result<FileReader> openBuffered(const std::filesystem::path& path, const NativeOps& ops,
                                 std::string fallback) {
     const auto open_error = [&path](int error) {
-        return makeError(Errc::Io, std::format("'{}' could not be opened: {}", displayPath(path),
-                                               systemMessage(error)));
+        return makeError(Errc::Io, std::format("'{}' could not be opened: {}",
+                                               dvv::pathDisplayText(path), systemMessage(error)));
     };
     const NativeOpen opened = ops.open(path, false);
     if (opened.handle == NO_HANDLE) {
@@ -115,16 +116,6 @@ std::expected<FileReader, std::string> openUnbuffered(const std::filesystem::pat
 
 }  // namespace
 
-std::string displayPath(const std::filesystem::path& path) {
-    const std::u8string text = path.u8string();
-    std::string result;
-    result.reserve(text.size());
-    for (const char8_t c : text) {
-        result.push_back(static_cast<char>(c));
-    }
-    return result;
-}
-
 Result<FileReader> openWith(const std::filesystem::path& path, FileReadMode mode,
                             const NativeOps& ops) {
     const bool unbuffered =
@@ -138,13 +129,13 @@ Result<FileReader> openWith(const std::filesystem::path& path, FileReadMode mode
     }
     if (mode == FileReadMode::Unbuffered) {
         return makeError(Errc::Io, std::format("'{}' cannot be read unbuffered: {}",
-                                               displayPath(path), opened.error()));
+                                               dvv::pathDisplayText(path), opened.error()));
     }
     // Auto: a file that cannot be opened at all reports the buffered open's error, without the
     // fallback line.
     DVV_TRY(FileReader reader, openBuffered(path, ops, opened.error()));
-    DVV_LOG_INFO("'{}': the unbuffered check failed ({}); reading buffered", displayPath(path),
-                 opened.error());
+    DVV_LOG_INFO("'{}': the unbuffered check failed ({}); reading buffered",
+                 dvv::pathDisplayText(path), opened.error());
     return reader;
 }
 
@@ -213,7 +204,7 @@ Result<std::size_t> FileReader::readAt(std::uint64_t offset,
                                        std::span<std::byte> destination) const {
     if (handle_ == detail::NO_HANDLE) {
         return makeError(Errc::Internal,
-                         std::format("'{}': the reader is closed", detail::displayPath(path_)));
+                         std::format("'{}': the reader is closed", dvv::pathDisplayText(path_)));
     }
     if (unbuffered_) {
         const auto address = reinterpret_cast<std::uintptr_t>(destination.data());
@@ -222,7 +213,7 @@ Result<std::size_t> FileReader::readAt(std::uint64_t offset,
             return makeError(Errc::Internal,
                              std::format("misaligned unbuffered read of '{}': offset {}, {} bytes, "
                                          "address mod {} = {}",
-                                         detail::displayPath(path_), offset, destination.size(),
+                                         dvv::pathDisplayText(path_), offset, destination.size(),
                                          alignment_, remainder));
         }
     }
@@ -236,7 +227,7 @@ Result<std::size_t> FileReader::readAt(std::uint64_t offset,
     }
     if (read.error != 0) {
         return makeError(Errc::Io, std::format("reading '{}' at offset {} failed: {}",
-                                               detail::displayPath(path_), offset + read.bytes,
+                                               dvv::pathDisplayText(path_), offset + read.bytes,
                                                detail::systemMessage(read.error)));
     }
     return read.bytes;

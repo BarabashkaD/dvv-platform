@@ -62,9 +62,6 @@ void closeNative(std::intptr_t handle) noexcept;
                                     std::uint64_t file_size) noexcept;
 [[nodiscard]] std::string systemMessage(int error);  // UTF-8, with the number
 
-// UTF-8 for messages (path::u8string, never path::string, which uses the ANSI code page).
-[[nodiscard]] std::string displayPath(const std::filesystem::path& path);
-
 // The platform calls of FileReader::open: the test seam that injects open-time failures (the
 // U-IO2 fallback) and counts reads in flight. The reader keeps `read` for readAt().
 struct NativeOps {

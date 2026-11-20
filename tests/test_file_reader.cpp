@@ -763,6 +763,19 @@ TEST_SUITE("file_reader") {
         CHECK(missing.error().message.find(utf8(u8"ü")) != std::string::npos);
     }
 
+#if !defined(_WIN32)
+    TEST_CASE("a message shows a path that is not UTF-8 with U+FFFD") {
+        const TemporaryDirectory dir;
+        const fs::path missing = dir.path() / std::string("bad-\xFF.bin");
+        const auto reader = FileReader::open(missing);
+        CHECK_FALSE(reader.has_value());
+        if (!reader) {
+            CHECK(reader.error().code == dvv::Errc::Io);
+            CHECK(reader.error().message.contains("bad-\xEF\xBF\xBD.bin"));
+        }
+    }
+#endif
+
     TEST_CASE("a moved reader keeps the file; the moved-from one is closed") {
         const TemporaryDirectory dir;
         const fs::path file = dir.path() / "moved.bin";

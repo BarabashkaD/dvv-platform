@@ -1,10 +1,10 @@
-#include <cstddef>
 #include <format>
 #include <string>
 #include <utility>
 
 #include <windows.h>
 
+#include "dvv/base/utf8_win32.h"
 #include "dvv/platform/testing/test_window.h"
 
 namespace dvv::platform::testing {
@@ -60,17 +60,6 @@ bool prepareProcess(HINSTANCE instance) {
     return READY;
 }
 
-std::wstring widen(std::string_view text) {
-    if (text.empty()) {
-        return {};
-    }
-    const int length = static_cast<int>(text.size());
-    const int size = MultiByteToWideChar(CP_UTF8, 0, text.data(), length, nullptr, 0);
-    std::wstring wide(static_cast<std::size_t>(size > 0 ? size : 0), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.data(), length, wide.data(), size);
-    return wide;
-}
-
 }  // namespace
 
 Result<TestWindow> TestWindow::create(PixelSize client_size, std::string_view title) {
@@ -81,7 +70,7 @@ Result<TestWindow> TestWindow::create(PixelSize client_size, std::string_view ti
     if (!prepareProcess(instance)) {
         return makeError(Errc::Internal, "TestWindow::create: RegisterClassExW failed");
     }
-    HWND const hwnd = CreateWindowExW(EX_STYLE, CLASS_NAME, widen(title).c_str(), STYLE,
+    HWND const hwnd = CreateWindowExW(EX_STYLE, CLASS_NAME, dvv::wideFromUtf8(title).c_str(), STYLE,
                                       CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
                                       nullptr, nullptr, instance, nullptr);
     if (hwnd == nullptr) {
