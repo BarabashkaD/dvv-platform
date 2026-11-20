@@ -26,8 +26,9 @@ enum class LostTarget : std::uint8_t {
 struct ReplaceFileOptions {
     FileDurability durability = FileDurability::Flushed;
     // Windows only: how many more times the replace step is tried when it fails with a sharing
-    // violation, a lock violation, access denied, ERROR_UNABLE_TO_REMOVE_REPLACED (1175), or
-    // ERROR_ALREADY_EXISTS / ERROR_FILE_EXISTS for a new target another writer created first.
+    // violation, a lock violation, access denied, ERROR_UNABLE_TO_REMOVE_REPLACED (1175),
+    // ERROR_ALREADY_EXISTS / ERROR_FILE_EXISTS for a new target another writer created first, or
+    // ERROR_FILE_NOT_FOUND for a target that another writer's replace has briefly moved away.
     // 0: never retried. macOS and Linux ignore it (rename never fails for these reasons).
     std::uint32_t retries = 0;
     std::chrono::milliseconds retryDelay{10};

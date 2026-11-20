@@ -1,12 +1,16 @@
 #include <doctest/doctest.h>
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstddef>
+#include <expected>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <mutex>
+#include <new>
 #include <span>
 #include <string>
 #include <string_view>
@@ -22,12 +26,15 @@
 #include <windows.h>
 #else
 #include <sys/stat.h>
+#include <sys/types.h>
 #endif
 
 #include "dvv/base/error.h"
 #include "dvv/platform/file_writer.h"
 #include "file_writer_detail.h"
-#if !defined(_WIN32)
+#if defined(_WIN32)
+#include "file_writer_win32.h"
+#else
 #include "file_writer_posix.h"
 #endif
 #include "test_support.h"
@@ -65,6 +72,74 @@ bool hasTemporary(const fs::path& folder) {
     }
     return false;
 }
+
+#if !defined(_WIN32)
+// Fakes for the ModeSetter seam: plain functions, so they count in globals.
+std::atomic<int> mode_setter_calls{0};
+std::atomic<mode_t> mode_before_setter{0};
+
+// Records the temporary file's mode as open() created it, then sets the mode.
+int recordingSetter(int file, mode_t mode) {
+    ++mode_setter_calls;
+    if (struct stat status{}; fstat(file, &status) == 0) {
+        mode_before_setter = static_cast<mode_t>(status.st_mode & 0777);
+    }
+    return ::fchmod(file, mode);
+}
+
+// A file system without POSIX modes.
+int refusingSetter(int /*file*/, mode_t /*mode*/) {
+    ++mode_setter_calls;
+    errno = EPERM;
+    return -1;
+}
+
+int failingSetter(int /*file*/, mode_t /*mode*/) {
+    ++mode_setter_calls;
+    errno = EIO;
+    return -1;
+}
+
+int throwingSetter(int /*file*/, mode_t /*mode*/) {
+    ++mode_setter_calls;
+    throw std::bad_alloc();
+}
+
+// A target at `mode`, holding "old".
+fs::path targetWithMode(const fs::path& folder, fs::perms mode) {
+    const fs::path target = folder / "a.json";
+    writeBytes(target, "old");
+    fs::permissions(target, mode, fs::perm_options::replace);
+    return target;
+}
+
+// Sets the umask and restores the old one, also when an exception leaves the scope.
+class UmaskScope {
+public:
+    explicit UmaskScope(mode_t mask) : old_mask_(::umask(mask)) {}
+    UmaskScope(const UmaskScope&) = delete;
+    UmaskScope& operator=(const UmaskScope&) = delete;
+    UmaskScope(UmaskScope&&) = delete;
+    UmaskScope& operator=(UmaskScope&&) = delete;
+    ~UmaskScope() { ::umask(old_mask_); }
+
+private:
+    mode_t old_mask_;
+};
+
+// writeAndReplaceWith on an existing target under `mask`, with a fresh call count.
+std::expected<void, detail::WriteFailure> replaceUnderMask(const fs::path& target, mode_t mask,
+                                                           detail::ModeSetter set_mode) {
+    mode_setter_calls = 0;
+    mode_before_setter = 0;
+    const UmaskScope umask_scope(mask);
+    return detail::writeAndReplaceWith(target, detail::temporaryName(target, 1), true,
+                                       bytesOf("new"), {}, set_mode);
+}
+
+constexpr fs::perms MODE_0600 = fs::perms::owner_read | fs::perms::owner_write;
+constexpr fs::perms MODE_0640 = MODE_0600 | fs::perms::group_read;
+#endif
 
 }  // namespace
 
@@ -115,20 +190,65 @@ TEST_SUITE("file_writer") {
 
     TEST_CASE("a 0600 target stays 0600 and its temporary is never created wider") {
         const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
-        const fs::path target = dir.path() / "a.json";
-        writeBytes(target, "old");
-        constexpr fs::perms MODE = fs::perms::owner_read | fs::perms::owner_write;  // 0600
-        fs::permissions(target, MODE, fs::perm_options::replace);
-        // The mode open() receives for the temporary file: the target's, never 0666.
+        const fs::path target = targetWithMode(dir.path(), MODE_0600);
         CHECK(detail::temporaryMode(target, true) == 0600);
         CHECK(detail::temporaryMode(dir.path() / "new.json", false) == 0666);
-        // Under umask 0, open() applies that mode unchanged.
-        const mode_t old_mask = ::umask(0);
-        const auto result = replaceFile(target, bytesOf("new"));
-        ::umask(old_mask);
+        // Under umask 0 the temporary file has exactly the mode open() received. writeAndReplace
+        // reads it with fstat and calls the setter only when it differs from 0600: no call means
+        // the temporary file was created 0600.
+        const auto result = replaceUnderMask(target, 0, recordingSetter);
         CHECK(result.has_value());
-        CHECK(fs::status(target).permissions() == MODE);
+        CHECK(mode_setter_calls.load() == 0);
+        CHECK(mode_before_setter.load() == 0);  // the created mode, had the setter run
+        CHECK(fs::status(target).permissions() == MODE_0600);
         CHECK(readFile(target) == "new");
+    }
+
+    TEST_CASE("the mode is set only when the umask removed bits") {
+        const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
+        const fs::path target = targetWithMode(dir.path(), MODE_0640);
+        const auto unmasked = replaceUnderMask(target, 0, recordingSetter);
+        CHECK(unmasked.has_value());
+        CHECK(mode_setter_calls.load() == 0);
+        const auto masked = replaceUnderMask(target, 077, recordingSetter);
+        CHECK(masked.has_value());
+        CHECK(mode_setter_calls.load() == 1);
+        CHECK(mode_before_setter.load() == 0600);  // 0640 less the umask, never wider
+        CHECK(fs::status(target).permissions() == MODE_0640);
+    }
+
+    TEST_CASE("a file system without modes does not fail the replace") {
+        const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
+        const fs::path target = targetWithMode(dir.path(), MODE_0640);
+        const auto result = replaceUnderMask(target, 077, refusingSetter);
+        CHECK(result.has_value());
+        CHECK(mode_setter_calls.load() == 1);
+        CHECK(readFile(target) == "new");
+        CHECK_FALSE(hasTemporary(dir.path()));
+    }
+
+    TEST_CASE("another mode error fails the replace and removes the temporary") {
+        const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
+        const fs::path target = targetWithMode(dir.path(), MODE_0640);
+        const auto result = replaceUnderMask(target, 077, failingSetter);
+        CHECK_FALSE(result.has_value());
+        if (!result) {
+            CHECK(result.error().error.code == dvv::Errc::Io);
+            CHECK(result.error().error.message.starts_with("cannot set the permissions: "));
+            CHECK_FALSE(result.error().nameTaken);
+        }
+        CHECK(readFile(target) == "old");
+        CHECK_FALSE(hasTemporary(dir.path()));
+    }
+
+    TEST_CASE("an exception after the create removes the temporary") {
+        const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
+        const fs::path target = targetWithMode(dir.path(), MODE_0640);
+        CHECK_THROWS_AS(static_cast<void>(replaceUnderMask(target, 077, throwingSetter)),
+                        std::bad_alloc);
+        CHECK(mode_setter_calls.load() == 1);
+        CHECK(readFile(target) == "old");
+        CHECK_FALSE(hasTemporary(dir.path()));
     }
 
     TEST_CASE("a 0640 target under umask 077 stays 0640") {
@@ -218,6 +338,30 @@ TEST_SUITE("file_writer") {
     }
 
 #if defined(_WIN32)
+    TEST_CASE("the retryable replace errors") {
+        for (const DWORD code :
+             std::initializer_list<DWORD>{ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION,
+                                          ERROR_ACCESS_DENIED, ERROR_UNABLE_TO_REMOVE_REPLACED}) {
+            CHECK(detail::isRetryableReplaceError(code, false));
+            CHECK(detail::isRetryableReplaceError(code, true));
+        }
+        for (const DWORD code :
+             std::initializer_list<DWORD>{ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS}) {
+            CHECK_FALSE(detail::isRetryableReplaceError(code, false));
+            CHECK(detail::isRetryableReplaceError(code, true));  // another writer created it
+        }
+        // ReplaceFileW while another writer's replace has the target away from its name; both
+        // files keep their names. A move to a new target that fails with it does not retry.
+        CHECK(detail::isRetryableReplaceError(ERROR_FILE_NOT_FOUND, false));
+        CHECK_FALSE(detail::isRetryableReplaceError(ERROR_FILE_NOT_FOUND, true));
+        for (const DWORD code : std::initializer_list<DWORD>{
+                 ERROR_UNABLE_TO_MOVE_REPLACEMENT, ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
+                 ERROR_PATH_NOT_FOUND, ERROR_DISK_FULL}) {
+            CHECK_FALSE(detail::isRetryableReplaceError(code, false));
+            CHECK_FALSE(detail::isRetryableReplaceError(code, true));
+        }
+    }
+
     TEST_CASE("a held target fails without retries") {
         const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
         const fs::path target = dir.path() / "a.json";

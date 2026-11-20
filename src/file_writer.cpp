@@ -3,9 +3,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <new>
 #include <random>
 #include <span>
 #include <system_error>
@@ -22,8 +24,8 @@ namespace {
 // The first temporary name and up to 3 more when a name is taken.
 constexpr std::size_t NAME_ATTEMPTS = 4;
 
-// One 64-bit value from std::random_device per temporary name. The device may throw
-// std::system_error, when it is made or called; that becomes an error here.
+// One 64-bit value from std::random_device per temporary name. The device may throw when it is
+// made or called (std::system_error, or another std::exception); that becomes an error here.
 Result<std::array<std::uint64_t, NAME_ATTEMPTS>> nameRandoms() {
     try {
         std::random_device device;
@@ -32,7 +34,9 @@ Result<std::array<std::uint64_t, NAME_ATTEMPTS>> nameRandoms() {
             random = (std::uint64_t{device()} << 32U) | std::uint64_t{device()};
         }
         return randoms;
-    } catch (const std::system_error& error) {
+    } catch (const std::bad_alloc&) {
+        throw;                               // the one exception replaceFile passes on
+    } catch (const std::exception& error) {  // std::system_error, or another library's choice
         return makeError(Errc::Io, std::format("cannot create a temporary file: {}", error.what()));
     }
 }
