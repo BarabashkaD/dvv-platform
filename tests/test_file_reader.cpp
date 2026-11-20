@@ -9,7 +9,6 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
-#include <memory>
 #include <random>
 #include <span>
 #include <string>
@@ -32,12 +31,12 @@
 #endif
 
 #include "dvv/base/error.h"
-#include "dvv/base/log.h"
 #include "dvv/platform/file_reader.h"
 #include "file_reader_detail.h"
 #if !defined(_WIN32)
 #include "file_reader_posix.h"
 #endif
+#include "test_support.h"
 
 namespace {
 
@@ -50,38 +49,8 @@ using dvv::platform::detail::NativeOps;
 using dvv::platform::detail::NativeRead;
 using dvv::platform::detail::NO_HANDLE;
 using dvv::platform::detail::OpenMode;
-
-// A unique directory under the system temporary directory, removed with its contents.
-class TemporaryDirectory {
-public:
-    TemporaryDirectory() {
-        std::random_device random;
-        const fs::path base = fs::temp_directory_path();
-        for (int attempt = 0; attempt < 100; ++attempt) {
-            fs::path candidate =
-                base / std::format("dvv-file-reader-{:08x}{:08x}", random(), random());
-            std::error_code error;
-            if (fs::create_directory(candidate, error)) {
-                path_ = std::move(candidate);
-                return;
-            }
-        }
-        FAIL("no temporary directory could be created");
-    }
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-    TemporaryDirectory(TemporaryDirectory&&) = delete;
-    TemporaryDirectory& operator=(TemporaryDirectory&&) = delete;
-    ~TemporaryDirectory() {
-        std::error_code error;
-        fs::remove_all(path_, error);
-    }
-
-    [[nodiscard]] const fs::path& path() const noexcept { return path_; }
-
-private:
-    fs::path path_;
-};
+using dvv::platform::test::LoggerScope;
+using dvv::platform::test::TemporaryDirectory;
 
 std::byte pattern(std::uint64_t i) {
     return static_cast<std::byte>((i * 131 + (i >> 8) * 7) & 0xFF);
@@ -159,34 +128,6 @@ std::vector<std::byte> readWhole(const FileReader& reader) {
     REQUIRE(*bytes == reader.size());
     return {buffer.get(), buffer.get() + *bytes};
 }
-
-// Restores the logger's level and removes the test's sinks (the tests add no other sinks).
-class LoggerScope {
-public:
-    LoggerScope() : level_(dvv::Logger::instance().level()) {
-        dvv::Logger::instance().clearSinks();
-        dvv::Logger::instance().addSink(sink_);
-        dvv::Logger::instance().setLevel(dvv::LogLevel::Info);
-    }
-    LoggerScope(const LoggerScope&) = delete;
-    LoggerScope& operator=(const LoggerScope&) = delete;
-    LoggerScope(LoggerScope&&) = delete;
-    LoggerScope& operator=(LoggerScope&&) = delete;
-    ~LoggerScope() {
-        dvv::Logger::instance().clearSinks();
-        dvv::Logger::instance().setLevel(level_);
-    }
-
-    [[nodiscard]] std::size_t count(std::string_view text) const {
-        const std::vector<std::string> lines = sink_->lines();
-        return static_cast<std::size_t>(std::ranges::count_if(
-            lines, [text](const std::string& line) { return line.contains(text); }));
-    }
-
-private:
-    dvv::LogLevel level_;
-    std::shared_ptr<dvv::MemorySink> sink_ = std::make_shared<dvv::MemorySink>();
-};
 
 // Injected failures (the NativeOps seam takes plain function pointers).
 constexpr int INJECTED_ERROR = 5;  // ERROR_ACCESS_DENIED / EIO

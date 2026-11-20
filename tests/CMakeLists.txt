@@ -25,11 +25,13 @@ add_executable(dvv_platform_tests
     test_aligned_buffer.cpp
     test_dynamic_library.cpp
     test_file_reader.cpp
+    test_file_writer.cpp
     test_native_window.cpp
     test_pixel_size.cpp
     test_window_handle.cpp)
 target_link_libraries(dvv_platform_tests PRIVATE dvv::platform doctest::doctest)
-# The FileReader tests use the private seam header (src/file_reader_detail.h).
+# The FileReader and replaceFile tests use the private seam headers (src/file_reader_detail.h,
+# src/file_writer_detail.h).
 target_include_directories(dvv_platform_tests PRIVATE ${dvv_platform_SOURCE_DIR}/src)
 # doctest otherwise only forward-declares std::ostream, which breaks printing std types.
 target_compile_definitions(dvv_platform_tests PRIVATE
