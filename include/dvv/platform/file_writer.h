@@ -57,9 +57,8 @@ struct ReplaceFileOptions {
 // new target), "cannot replace the file: …", and for a kept temporary file "cannot replace the
 // file: …; the new contents are in <temporary path>". Errc::Internal "replaceFile: '<target>'
 // names no file" for a path without a file name. Paths in messages are display text
-// (dvv::pathDisplayText). Thread-safe: no shared
-// state; concurrent calls on one target leave one complete file (the last replace wins). Throws
-// only std::bad_alloc.
+// (dvv::pathDisplayText). Thread-safe: no shared state; concurrent calls on one target leave one
+// complete file (the last replace wins). Throws only std::bad_alloc.
 [[nodiscard]] Result<void> replaceFile(const std::filesystem::path& target,
                                        std::span<const std::byte> bytes,
                                        const ReplaceFileOptions& options = {});

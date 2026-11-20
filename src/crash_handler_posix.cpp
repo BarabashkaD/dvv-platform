@@ -261,9 +261,14 @@ void onTimeLimit(int /*signal*/) {
 }
 
 // The owner's first step: SIGALRM to onTimeLimit and alarm() at the time limit, keeping what was
-// set before.
+// set before. An app may block SIGALRM in every thread, so the crashing thread unblocks it first:
+// the alarm is then delivered to it. The handler's return restores the thread's mask.
 void armTimeLimit(int signal) noexcept {
     state.crashSignal.store(signal);
+    sigset_t alarm_only{};
+    sigemptyset(&alarm_only);
+    sigaddset(&alarm_only, SIGALRM);
+    static_cast<void>(::pthread_sigmask(SIG_UNBLOCK, &alarm_only, nullptr));
     struct sigaction action{};
     action.sa_handler = &onTimeLimit;
     sigemptyset(&action.sa_mask);

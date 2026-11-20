@@ -457,6 +457,14 @@ if(NOT CMAKE_HOST_WIN32)
     if(NOT run_seconds LESS 30)
         problem("the hung crash took ${run_seconds} s, expected less than 30")
     endif()
+
+    # The same with SIGALRM blocked in every thread: the handler unblocks it on the crashing thread.
+    fresh_case(hang_blocked)
+    run_child(hang_blocked hang-blocked)
+    check_ending("")
+    if(NOT run_seconds LESS 30)
+        problem("the hung crash with SIGALRM blocked took ${run_seconds} s, expected less than 30")
+    endif()
 endif()
 
 get_property(problems GLOBAL PROPERTY crash_problems)

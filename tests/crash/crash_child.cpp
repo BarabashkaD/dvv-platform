@@ -5,8 +5,8 @@
 // crashIfRequested, "sink" (a fault inside the sink, synchronous logger), "chain" (macOS, Linux: a
 // fault under the child's own SIGSEGV handler, installed before the crash handler) or "hang"
 // (macOS, Linux: a fault while stderr is a full pipe, so the handler hangs at its first line and
-// its 2 s time limit must end the process). Without the variable it only installs, which reports
-// earlier crashes, and exits 0.
+// its 2 s time limit must end the process; "hang-blocked" is the same with SIGALRM blocked in
+// every thread). Without the variable it only installs, which reports earlier crashes, and exits 0.
 #include <atomic>
 #include <cstdio>
 #include <memory>
@@ -126,12 +126,18 @@ int main(int argc, char** argv) {
         }
 #endif
     }
-    if (mode == "hang") {
+    if (mode == "hang" || mode == "hang-blocked") {
 #if defined(_WIN32)
         static_cast<void>(std::fputs("hang is POSIX only\n", stdout));
         return 2;
 #else
         dvv::platform::detail::setCrashTimeLimit(2);
+        if (mode == "hang-blocked") {  // an app that blocks SIGALRM in this thread
+            sigset_t alarm_only;
+            static_cast<void>(sigemptyset(&alarm_only));
+            static_cast<void>(sigaddset(&alarm_only, SIGALRM));
+            static_cast<void>(pthread_sigmask(SIG_BLOCK, &alarm_only, nullptr));
+        }
 #endif
     }
 
@@ -145,7 +151,7 @@ int main(int argc, char** argv) {
     DVV_LOG_INFO("crash child marker {}", *mode);
     if (*mode == "chain") {
         writeThroughNull();
-    } else if (*mode == "hang") {
+    } else if (*mode == "hang" || *mode == "hang-blocked") {
 #if !defined(_WIN32)
         if (!fillStderr()) {
             std::perror("fillStderr");
