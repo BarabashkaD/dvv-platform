@@ -82,10 +82,10 @@ std::unexpected<WriteFailure> lostTargetFailure(TemporaryFile& file,
     if (lost_target == LostTarget::RemoveTemporary) {
         return ioFailure(std::format("cannot replace the file: {}", win32ErrorMessage(code)));
     }
-    auto failure = ioFailure(std::format("cannot replace the file: {}; the new contents are in {}",
-                                         win32ErrorMessage(code), pathDisplayText(temporary)));
+    // Kept before the message is built: a std::bad_alloc from it must not remove the only copy.
     file.keep();
-    return failure;
+    return ioFailure(std::format("cannot replace the file: {}; the new contents are in {}",
+                                 win32ErrorMessage(code), pathDisplayText(temporary)));
 }
 
 // Replaces `target` with the closed temporary file, trying again after a retryable code while
