@@ -27,6 +27,9 @@
 #include "dvv/base/error.h"
 #include "dvv/platform/file_writer.h"
 #include "file_writer_detail.h"
+#if !defined(_WIN32)
+#include "file_writer_posix.h"
+#endif
 #include "test_support.h"
 
 namespace {
@@ -108,6 +111,38 @@ TEST_SUITE("file_writer") {
         CHECK(result.has_value());
         CHECK(fs::status(target).permissions() == MODE);
         CHECK(readFile(target) == "new");
+    }
+
+    TEST_CASE("a 0600 target stays 0600 and its temporary is never created wider") {
+        const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
+        const fs::path target = dir.path() / "a.json";
+        writeBytes(target, "old");
+        constexpr fs::perms MODE = fs::perms::owner_read | fs::perms::owner_write;  // 0600
+        fs::permissions(target, MODE, fs::perm_options::replace);
+        // The mode open() receives for the temporary file: the target's, never 0666.
+        CHECK(detail::temporaryMode(target, true) == 0600);
+        CHECK(detail::temporaryMode(dir.path() / "new.json", false) == 0666);
+        // Under umask 0, open() applies that mode unchanged.
+        const mode_t old_mask = ::umask(0);
+        const auto result = replaceFile(target, bytesOf("new"));
+        ::umask(old_mask);
+        CHECK(result.has_value());
+        CHECK(fs::status(target).permissions() == MODE);
+        CHECK(readFile(target) == "new");
+    }
+
+    TEST_CASE("a 0640 target under umask 077 stays 0640") {
+        const dvv::platform::test::TemporaryDirectory dir("dvv-file-writer");
+        const fs::path target = dir.path() / "a.json";
+        writeBytes(target, "old");
+        constexpr fs::perms MODE =
+            fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read;  // 0640
+        fs::permissions(target, MODE, fs::perm_options::replace);
+        const mode_t old_mask = ::umask(077);
+        const auto result = replaceFile(target, bytesOf("new"));
+        ::umask(old_mask);
+        CHECK(result.has_value());
+        CHECK(fs::status(target).permissions() == MODE);
     }
 
     TEST_CASE("a new target gets the umask's default") {

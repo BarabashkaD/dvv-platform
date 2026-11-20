@@ -123,6 +123,9 @@ std::expected<void, WriteFailure> writeAndReplace(const std::filesystem::path& t
                                                   bool target_exists,
                                                   std::span<const std::byte> bytes,
                                                   const ReplaceFileOptions& options) {
+    // No security attributes: the temporary file inherits the folder's ACL, as any new file in it
+    // does, so it is no wider than a new target. ReplaceFileW then gives it the target's ACL; it
+    // needs WRITE_DAC on the temporary file, which its owner (this process) has.
     const HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
                                     FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {

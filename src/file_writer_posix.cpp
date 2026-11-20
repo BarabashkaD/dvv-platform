@@ -1,3 +1,5 @@
+#include "file_writer_posix.h"
+
 #include <algorithm>
 #include <cerrno>
 #include <cstddef>
@@ -45,21 +47,32 @@ std::unexpected<WriteFailure> ioFailure(
 
 }  // namespace
 
+mode_t temporaryMode(const std::filesystem::path& target, bool target_exists) {
+    if (!target_exists) {
+        return 0666;
+    }
+    struct stat status{};
+    return static_cast<mode_t>(stat(target.c_str(), &status) == 0 ? (status.st_mode & 0777) : 0600);
+}
+
 std::expected<void, WriteFailure> writeAndReplace(const std::filesystem::path& target,
                                                   const std::filesystem::path& temporary,
                                                   bool target_exists,
                                                   std::span<const std::byte> bytes,
                                                   const ReplaceFileOptions& options) {
-    const int file = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+    // Created with the target's mode, never wider: the new contents are never readable by more
+    // users than the old ones.
+    const mode_t mode = temporaryMode(target, target_exists);
+    const int file = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode);
     if (file < 0) {
         const int error = errno;
         return ioFailure(std::format("cannot create a temporary file: {}", systemMessage(error)),
                          error == EEXIST);
     }
     std::string failure;
-    // open() applied the umask; an existing target's permission bits are copied.
-    if (struct stat status{}; target_exists && stat(target.c_str(), &status) == 0 &&
-                              fchmod(file, status.st_mode & 0777) != 0) {
+    // open() applied the umask: an existing target's bits that it removed come back. This only
+    // adds bits, up to the target's mode.
+    if (target_exists && fchmod(file, mode) != 0) {
         failure = std::format("cannot set the permissions: {}", systemMessage(errno));
     }
     std::span<const std::byte> rest = bytes;
