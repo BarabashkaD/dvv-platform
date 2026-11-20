@@ -45,14 +45,12 @@ private:
     std::intptr_t handle_;
 };
 
-// Everything that can throw (the path copy, the read lock) runs before the guard hands the handle
-// on, so a failed allocation never leaks it.
-FileReader adopt(HandleGuard& guard, const std::filesystem::path& path, std::uint64_t size,
-                 std::uint32_t alignment, std::string fallback, NativeReadFn read) {
-    std::filesystem::path owned = path;
-    auto lock = std::make_unique<std::mutex>();
-    return FileReaderAccess::make(guard.release(), std::move(owned), size, alignment,
-                                  std::move(fallback), read, std::move(lock));
+// Everything that can throw (the caller's path copy, the read lock) runs before the guard hands
+// the handle on, so a failed allocation never leaks it.
+FileReader adopt(HandleGuard& guard, ReaderParts parts) {
+    parts.readLock = std::make_unique<std::mutex>();
+    parts.handle = guard.release();
+    return FileReaderAccess::make(std::move(parts));
 }
 
 Result<FileReader> openBuffered(const std::filesystem::path& path, const NativeOps& ops,
@@ -61,7 +59,7 @@ Result<FileReader> openBuffered(const std::filesystem::path& path, const NativeO
         return makeError(Errc::Io, std::format("'{}' could not be opened: {}",
                                                dvv::pathDisplayText(path), systemMessage(error)));
     };
-    const NativeOpen opened = ops.open(path, false);
+    const NativeOpen opened = ops.open(path, OpenMode::Buffered);
     if (opened.handle == NO_HANDLE) {
         return open_error(opened.error);
     }
@@ -70,14 +68,18 @@ Result<FileReader> openBuffered(const std::filesystem::path& path, const NativeO
     if (size.error != 0) {
         return open_error(size.error);
     }
-    return adopt(guard, path, size.size, 1, std::move(fallback), ops.read);
+    return adopt(guard, {.path = path,
+                         .size = size.size,
+                         .alignment = 1,
+                         .fallback = std::move(fallback),
+                         .read = ops.read});
 }
 
 // The open-time check of U-IO2: the unbuffered open, the volume's sector size and the first
 // aligned read. Unexpected: the reason it failed.
 std::expected<FileReader, std::string> openUnbuffered(const std::filesystem::path& path,
                                                       const NativeOps& ops) {
-    const NativeOpen opened = ops.open(path, true);
+    const NativeOpen opened = ops.open(path, OpenMode::Unbuffered);
     if (opened.handle == NO_HANDLE) {
         return std::unexpected("the unbuffered open failed: " + systemMessage(opened.error));
     }
@@ -110,7 +112,8 @@ std::expected<FileReader, std::string> openUnbuffered(const std::filesystem::pat
                                                read.bytes, expected));
         }
     }
-    return adopt(guard, path, size.size, alignment, {}, ops.read);
+    return adopt(guard,
+                 {.path = path, .size = size.size, .alignment = alignment, .read = ops.read});
 }
 
 }  // namespace
@@ -144,39 +147,14 @@ Result<FileReader> FileReader::open(const std::filesystem::path& path, FileReadM
     return detail::openWith(path, mode, detail::NativeOps{});
 }
 
-FileReader::FileReader(std::intptr_t handle, std::filesystem::path path, std::uint64_t size,
-                       std::uint32_t alignment, std::string fallback, detail::NativeReadFn read,
-                       std::unique_ptr<std::mutex> read_lock) noexcept
-    : handle_(handle),
-      path_(std::move(path)),
-      size_(size),
-      alignment_(alignment),
-      unbuffered_(alignment > 1),
-      fallback_(std::move(fallback)),
-      read_(read),
-      read_lock_(std::move(read_lock)) {}
+FileReader::FileReader(detail::ReaderParts parts) noexcept : parts_(std::move(parts)) {}
 
-FileReader::FileReader(FileReader&& other) noexcept
-    : handle_(std::exchange(other.handle_, detail::NO_HANDLE)),
-      path_(std::exchange(other.path_, {})),
-      size_(std::exchange(other.size_, 0)),
-      alignment_(std::exchange(other.alignment_, 1)),
-      unbuffered_(std::exchange(other.unbuffered_, false)),
-      fallback_(std::exchange(other.fallback_, {})),
-      read_(std::exchange(other.read_, nullptr)),
-      read_lock_(std::move(other.read_lock_)) {}
+FileReader::FileReader(FileReader&& other) noexcept : parts_(std::exchange(other.parts_, {})) {}
 
 FileReader& FileReader::operator=(FileReader&& other) noexcept {
     if (this != &other) {
         close();
-        handle_ = std::exchange(other.handle_, detail::NO_HANDLE);
-        path_ = std::exchange(other.path_, {});
-        size_ = std::exchange(other.size_, 0);
-        alignment_ = std::exchange(other.alignment_, 1);
-        unbuffered_ = std::exchange(other.unbuffered_, false);
-        fallback_ = std::exchange(other.fallback_, {});
-        read_ = std::exchange(other.read_, nullptr);
-        read_lock_ = std::move(other.read_lock_);
+        parts_ = std::exchange(other.parts_, {});
     }
     return *this;
 }
@@ -186,34 +164,35 @@ FileReader::~FileReader() {
 }
 
 void FileReader::close() noexcept {
-    detail::closeNative(std::exchange(handle_, detail::NO_HANDLE));
+    detail::closeNative(std::exchange(parts_.handle, detail::NO_HANDLE));
 }
 
 std::string FileReader::modeText() const {
-    if (unbuffered_) {
+    if (unbuffered()) {
         return "unbuffered";
     }
-    if (fallback_.empty()) {
+    if (parts_.fallback.empty()) {
         return "buffered";
     }
-    return std::format("buffered (fallback: {})", fallback_);
+    return std::format("buffered (fallback: {})", parts_.fallback);
 }
 
 Result<std::size_t> FileReader::readAt(std::uint64_t offset,
                                        std::span<std::byte> destination) const {
-    if (handle_ == detail::NO_HANDLE) {
-        return makeError(Errc::Internal,
-                         std::format("'{}': the reader is closed", dvv::pathDisplayText(path_)));
+    if (parts_.handle == detail::NO_HANDLE) {
+        return makeError(Errc::Internal, std::format("'{}': the reader is closed",
+                                                     dvv::pathDisplayText(parts_.path)));
     }
-    if (unbuffered_) {
+    if (unbuffered()) {
+        const std::uint32_t alignment = parts_.alignment;
         const auto address = reinterpret_cast<std::uintptr_t>(destination.data());
-        const std::uint64_t remainder = address % alignment_;
-        if (offset % alignment_ != 0 || destination.size() % alignment_ != 0 || remainder != 0) {
+        const std::uint64_t remainder = address % alignment;
+        if (offset % alignment != 0 || destination.size() % alignment != 0 || remainder != 0) {
             return makeError(Errc::Internal,
                              std::format("misaligned unbuffered read of '{}': offset {}, {} bytes, "
                                          "address mod {} = {}",
-                                         dvv::pathDisplayText(path_), offset, destination.size(),
-                                         alignment_, remainder));
+                                         dvv::pathDisplayText(parts_.path), offset,
+                                         destination.size(), alignment, remainder));
         }
     }
     if (destination.empty()) {
@@ -221,13 +200,14 @@ Result<std::size_t> FileReader::readAt(std::uint64_t offset,
     }
     detail::NativeRead read;
     {
-        const std::scoped_lock lock(*read_lock_);  // U-IO2: one read at a time per file
-        read = read_(handle_, offset, destination, size_);
+        const std::scoped_lock lock(*parts_.readLock);  // U-IO2: one read at a time per file
+        read = parts_.read(parts_.handle, offset, destination, parts_.size);
     }
     if (read.error != 0) {
-        return makeError(Errc::Io, std::format("reading '{}' at offset {} failed: {}",
-                                               dvv::pathDisplayText(path_), offset + read.bytes,
-                                               detail::systemMessage(read.error)));
+        return makeError(
+            Errc::Io,
+            std::format("reading '{}' at offset {} failed: {}", dvv::pathDisplayText(parts_.path),
+                        offset + read.bytes, detail::systemMessage(read.error)));
     }
     return read.bytes;
 }

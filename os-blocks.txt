@@ -1,5 +1,4 @@
 # os-blocks baseline, written by dvv-build tools/os-blocks.cmake; it may only shrink
-1	src/file_reader_detail.h
 1	src/native_window.cpp
 1	src/surface.cpp
 1	src/surface_detail.h

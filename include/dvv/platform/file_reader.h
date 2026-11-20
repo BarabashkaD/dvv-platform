@@ -35,6 +35,17 @@ struct NativeRead;
 using NativeReadFn = NativeRead (*)(std::intptr_t handle, std::uint64_t offset,
                                     std::span<std::byte> destination,
                                     std::uint64_t file_size) noexcept;
+
+// What a FileReader holds (complete here because FileReader holds it).
+struct ReaderParts {
+    std::intptr_t handle = -1;  // HANDLE (Windows) or file descriptor; -1: none
+    std::filesystem::path path;
+    std::uint64_t size = 0;
+    std::uint32_t alignment = 1;  // > 1: unbuffered
+    std::string fallback;
+    NativeReadFn read = nullptr;           // the platform read (a test seam)
+    std::unique_ptr<std::mutex> readLock;  // one read at a time (U-IO2); null when moved from
+};
 }  // namespace detail
 
 enum class FileReadMode : std::uint8_t {
@@ -59,13 +70,13 @@ public:
     FileReader& operator=(const FileReader&) = delete;
     ~FileReader();
 
-    [[nodiscard]] std::uint64_t size() const noexcept { return size_; }
-    [[nodiscard]] bool unbuffered() const noexcept { return unbuffered_; }
+    [[nodiscard]] std::uint64_t size() const noexcept { return parts_.size; }
+    [[nodiscard]] bool unbuffered() const noexcept { return parts_.alignment > 1; }
     // Required alignment of offset, length and destination address: 1 when buffered; otherwise
     // max(4096, the volume's sector size).
-    [[nodiscard]] std::uint32_t alignment() const noexcept { return alignment_; }
+    [[nodiscard]] std::uint32_t alignment() const noexcept { return parts_.alignment; }
     // Why Auto reads this file buffered; empty otherwise.
-    [[nodiscard]] const std::string& fallbackReason() const noexcept { return fallback_; }
+    [[nodiscard]] const std::string& fallbackReason() const noexcept { return parts_.fallback; }
     // "unbuffered", "buffered" or "buffered (fallback: <reason>)" (CLI info, the GUI Info pane).
     [[nodiscard]] std::string modeText() const;
     // Blocking read of destination.size() bytes at `offset`; returns the bytes read, fewer only at
@@ -75,23 +86,14 @@ public:
     // offset). Retries EINTR and partial reads; never reopens.
     [[nodiscard]] Result<std::size_t> readAt(std::uint64_t offset,
                                              std::span<std::byte> destination) const;
-    [[nodiscard]] const std::filesystem::path& path() const noexcept { return path_; }
+    [[nodiscard]] const std::filesystem::path& path() const noexcept { return parts_.path; }
 
 private:
     friend struct detail::FileReaderAccess;
-    FileReader(std::intptr_t handle, std::filesystem::path path, std::uint64_t size,
-               std::uint32_t alignment, std::string fallback, detail::NativeReadFn read,
-               std::unique_ptr<std::mutex> read_lock) noexcept;
+    explicit FileReader(detail::ReaderParts parts) noexcept;
     void close() noexcept;
 
-    std::intptr_t handle_ = -1;  // HANDLE (Windows) or file descriptor (Linux); -1: none
-    std::filesystem::path path_;
-    std::uint64_t size_ = 0;
-    std::uint32_t alignment_ = 1;
-    bool unbuffered_ = false;
-    std::string fallback_;
-    detail::NativeReadFn read_ = nullptr;    // the platform read (a test seam)
-    std::unique_ptr<std::mutex> read_lock_;  // one read at a time (U-IO2); null when moved from
+    detail::ReaderParts parts_;  // a default ReaderParts is the moved-from state
 };
 
 }  // namespace dvv::platform

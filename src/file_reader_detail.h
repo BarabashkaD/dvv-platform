@@ -3,8 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <memory>
-#include <mutex>
 #include <span>
 #include <string>
 #include <utility>
@@ -29,25 +27,19 @@ struct NativeRead {
     int error = 0;
 };
 
-// Platform parts (file_reader_win32.cpp, file_reader_posix.cpp).
+// How openNative opens a file (see file_reader.h).
+enum class OpenMode : std::uint8_t { Buffered, Unbuffered };
+
+// Platform parts (file_reader_win32.cpp; file_reader_posix.cpp with file_reader_macos.cpp or
+// file_reader_linux.cpp).
 // Whether FileReadMode::Auto tries unbuffered reads first (Windows only, U-IO2).
 extern const bool AUTO_TRIES_UNBUFFERED;
 // Opens buffered with the sequential-access hint, or unbuffered (see file_reader.h).
-[[nodiscard]] NativeOpen openNative(const std::filesystem::path& path, bool unbuffered) noexcept;
+[[nodiscard]] NativeOpen openNative(const std::filesystem::path& path, OpenMode mode) noexcept;
 // The flags openNative passes: CreateFileW's dwFlagsAndAttributes on Windows, open()'s flags on
-// Linux (the Linux hint is posix_fadvise, not a flag; macOS has no O_DIRECT, see nativeFcntlHints).
-// For tests.
-[[nodiscard]] std::uint32_t nativeOpenFlags(bool unbuffered) noexcept;
-#if !defined(_WIN32)
-// The fcntl hints openNative applies after open() on macOS (F_NOCACHE for unbuffered, F_RDAHEAD
-// for the buffered sequential hint). Neither can be read back, so tests see them here. All false
-// elsewhere (Linux uses O_DIRECT in the open flags and posix_fadvise).
-struct FcntlHints {
-    bool noCache = false;
-    bool readAhead = false;
-};
-[[nodiscard]] FcntlHints nativeFcntlHints(bool unbuffered) noexcept;
-#endif
+// Linux (the Linux hint is posix_fadvise, not a flag; macOS has no O_DIRECT, see nativeFcntlHints
+// in file_reader_posix.h). For tests.
+[[nodiscard]] std::uint32_t nativeOpenFlags(OpenMode mode) noexcept;
 void closeNative(std::intptr_t handle) noexcept;
 [[nodiscard]] NativeSize fileSize(std::intptr_t handle) noexcept;
 // The unbuffered I/O granule of the handle's volume: Windows max(LogicalBytesPerSector,
@@ -65,7 +57,7 @@ void closeNative(std::intptr_t handle) noexcept;
 // The platform calls of FileReader::open: the test seam that injects open-time failures (the
 // U-IO2 fallback) and counts reads in flight. The reader keeps `read` for readAt().
 struct NativeOps {
-    NativeOpen (*open)(const std::filesystem::path&, bool unbuffered) noexcept = openNative;
+    NativeOpen (*open)(const std::filesystem::path&, OpenMode) noexcept = openNative;
     std::uint32_t (*sectorSize)(std::intptr_t handle) noexcept = detail::sectorSize;
     NativeReadFn read = readNative;
     bool autoTriesUnbuffered = AUTO_TRIES_UNBUFFERED;
@@ -74,12 +66,8 @@ struct NativeOps {
                                           const NativeOps& ops);
 
 struct FileReaderAccess {
-    [[nodiscard]] static FileReader make(std::intptr_t handle, std::filesystem::path path,
-                                         std::uint64_t size, std::uint32_t alignment,
-                                         std::string fallback, NativeReadFn read,
-                                         std::unique_ptr<std::mutex> read_lock) noexcept {
-        return FileReader(handle, std::move(path), size, alignment, std::move(fallback), read,
-                          std::move(read_lock));
+    [[nodiscard]] static FileReader make(ReaderParts parts) noexcept {
+        return FileReader(std::move(parts));
     }
 };
 
