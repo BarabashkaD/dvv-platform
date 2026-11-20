@@ -7,6 +7,8 @@
 #include <string_view>
 #include <variant>
 
+#include "dvv/platform/pixel_size.h"
+
 namespace dvv::platform {
 
 enum class WindowSystem : std::uint8_t { Win32, Xlib, Metal };
@@ -15,12 +17,6 @@ enum class WindowSystem : std::uint8_t { Win32, Xlib, Metal };
 // The window system this build presents to: Win32 on Windows, Xlib on Linux, Metal on macOS.
 [[nodiscard]] WindowSystem defaultWindowSystem() noexcept;
 
-struct PixelSize {  // physical pixels
-    std::uint32_t width = 0;
-    std::uint32_t height = 0;
-    [[nodiscard]] constexpr bool empty() const noexcept { return width == 0 || height == 0; }
-    friend constexpr bool operator==(PixelSize, PixelSize) noexcept = default;
-};
 struct Win32Window {  // HINSTANCE, HWND
     void* hinstance = nullptr;
     void* hwnd = nullptr;

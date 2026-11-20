@@ -22,9 +22,11 @@ dvv_set_compiler_options(dvv_platform_test_dependent)
 
 add_executable(dvv_platform_tests
     main.cpp
+    test_aligned_buffer.cpp
     test_dynamic_library.cpp
     test_file_reader.cpp
-    test_native_window.cpp)
+    test_native_window.cpp
+    test_pixel_size.cpp)
 target_link_libraries(dvv_platform_tests PRIVATE dvv::platform doctest::doctest)
 # The FileReader tests use the private seam header (src/file_reader_detail.h).
 target_include_directories(dvv_platform_tests PRIVATE ${dvv_platform_SOURCE_DIR}/src)

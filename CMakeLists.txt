@@ -40,6 +40,7 @@ if(NOT WIN32 AND NOT APPLE)
 endif()
 
 add_library(dvv_platform STATIC
+    src/aligned_buffer.cpp
     src/dynamic_library.cpp
     src/file_reader.cpp
     src/native_window.cpp

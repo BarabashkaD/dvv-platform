@@ -25,6 +25,7 @@
 #include <string>
 
 #include "dvv/base/error.h"
+#include "dvv/platform/aligned_buffer.h"
 
 namespace dvv::platform {
 
@@ -92,16 +93,5 @@ private:
     detail::NativeReadFn read_ = nullptr;    // the platform read (a test seam)
     std::unique_ptr<std::mutex> read_lock_;  // one read at a time (U-IO2); null when moved from
 };
-
-// Aligned host memory (operator new[] with std::align_val_t): unbuffered read targets and host
-// frames.
-struct AlignedBufferDeleter {
-    std::size_t alignment = 1;
-    void operator()(std::byte* memory) const noexcept;
-};
-using AlignedBuffer = std::unique_ptr<std::byte[], AlignedBufferDeleter>;
-// Errc::Internal for 0 bytes or an alignment that is not a power of two; Errc::OutOfMemory when
-// the allocation fails.
-[[nodiscard]] Result<AlignedBuffer> allocateAligned(std::size_t bytes, std::size_t alignment);
 
 }  // namespace dvv::platform

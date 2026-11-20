@@ -271,24 +271,6 @@ NativeOps autoOps() {
 }  // namespace
 
 TEST_SUITE("file_reader") {
-    TEST_CASE("allocateAligned returns aligned memory") {
-        const std::array<std::pair<std::size_t, std::size_t>, 4> cases{
-            {{1, 1}, {100, 512}, {8192, 4096}, {5000, 65536}}};
-        for (const auto& [bytes, alignment] : cases) {
-            CAPTURE(bytes);
-            CAPTURE(alignment);
-            const auto buffer = allocateAligned(bytes, alignment);
-            REQUIRE(buffer.has_value());
-            CHECK(reinterpret_cast<std::uintptr_t>(buffer->get()) % alignment == 0);
-        }
-        const auto empty = allocateAligned(0, 64);
-        REQUIRE_FALSE(empty.has_value());
-        CHECK(empty.error().code == dvv::Errc::Internal);
-        const auto odd = allocateAligned(64, 3);
-        REQUIRE_FALSE(odd.has_value());
-        CHECK(odd.error().code == dvv::Errc::Internal);
-    }
-
     TEST_CASE("a buffered reader reads any range") {
         const TemporaryDirectory dir;
         const fs::path file = dir.path() / "buffered.bin";

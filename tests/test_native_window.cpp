@@ -10,7 +10,6 @@ namespace {
 
 using dvv::platform::MetalWindow;
 using dvv::platform::NativeWindow;
-using dvv::platform::PixelSize;
 using dvv::platform::Win32Window;
 using dvv::platform::WindowSystem;
 using dvv::platform::XlibWindow;
@@ -35,15 +34,6 @@ TEST_CASE("windowSystemOf names the window's alternative") {
     CHECK(dvv::platform::windowSystemOf(NativeWindow{Win32Window{}}) == WindowSystem::Win32);
     CHECK(dvv::platform::windowSystemOf(NativeWindow{XlibWindow{}}) == WindowSystem::Xlib);
     CHECK(dvv::platform::windowSystemOf(NativeWindow{MetalWindow{}}) == WindowSystem::Metal);
-}
-
-TEST_CASE("a pixel size is empty when a side is 0") {
-    CHECK(PixelSize{}.empty());
-    CHECK(PixelSize{.width = 1, .height = 0}.empty());
-    CHECK(PixelSize{.width = 0, .height = 1}.empty());
-    CHECK_FALSE(PixelSize{.width = 1, .height = 1}.empty());
-    CHECK(PixelSize{.width = 2, .height = 3} == PixelSize{.width = 2, .height = 3});
-    CHECK(PixelSize{.width = 2, .height = 3} != PixelSize{.width = 3, .height = 2});
 }
 
 TEST_CASE("each window system needs VK_KHR_surface and its own extension") {
