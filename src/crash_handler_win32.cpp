@@ -49,6 +49,9 @@ constexpr std::size_t WRITE_BUFFER_BYTES = std::size_t{64} * 1024;
 constexpr SIZE_T DUMP_THREAD_STACK_BYTES = SIZE_T{256} * 1024;
 // How long the crashing thread waits for the dump thread before it ends the process anyway.
 constexpr DWORD DUMP_TIMEOUT_MS = 120'000;
+// How long a thread that crashes while another one owns the crash waits for that one to end the
+// process, before it ends it itself (the owner hangs when it writes on its own thread).
+constexpr DWORD WAITER_TIMEOUT_MS = DUMP_TIMEOUT_MS + 10'000;
 // Stack that installBackend reserves on its calling thread for the stack-overflow path.
 constexpr ULONG OVERFLOW_STACK_GUARANTEE = 64 * 1024;
 // Exit code of crashNow("stack") when that guarantee is missing.
@@ -324,9 +327,10 @@ DWORD WINAPI dumpThread(void* /*unused*/) {
 
 // Makes the calling thread the crash's owner. False on the dump thread or when this thread owns
 // the crash already (a crash inside the handler): the caller ends the process at once. When
-// another thread owns it, this one waits forever: that thread writes and ends the process; never
-// hand it to WER. Small stack use only, as its callers.
-bool takeCrash(DWORD self) noexcept {
+// another thread owns it, this one waits: that thread writes and ends the process; never hand it
+// to WER. If that has not happened after WAITER_TIMEOUT_MS, this thread ends the process with
+// `exit_code`. Small stack use only, as its callers.
+bool takeCrash(DWORD self, UINT exit_code) noexcept {
     if (self == state.dumpThreadId) {
         return false;
     }
@@ -335,7 +339,9 @@ bool takeCrash(DWORD self) noexcept {
         if (expected == self) {
             return false;
         }
-        Sleep(INFINITE);
+        Sleep(WAITER_TIMEOUT_MS);
+        TerminateProcess(GetCurrentProcess(), exit_code);
+        return false;  // fallback, if TerminateProcess returns: the caller ends the process
     }
     return true;
 }
@@ -360,7 +366,7 @@ void writeOwnedCrash(EXCEPTION_POINTERS* pointers, DWORD self) noexcept {
 // Small stack use only: a stack overflow runs this on a thread with little stack left.
 LONG WINAPI onUnhandledException(EXCEPTION_POINTERS* pointers) {
     const DWORD self = GetCurrentThreadId();
-    if (!takeCrash(self)) {
+    if (!takeCrash(self, pointers->ExceptionRecord->ExceptionCode)) {
         return EXCEPTION_EXECUTE_HANDLER;  // the dump or the filter itself crashed: end the process
     }
     writeOwnedCrash(pointers, self);
@@ -379,7 +385,7 @@ void onAbortSignal(int /*signal*/) {
     // another thread meanwhile also comes here and waits instead of ending the process at once.
     static_cast<void>(std::signal(SIGABRT, &onAbortSignal));
     const DWORD self = GetCurrentThreadId();
-    if (takeCrash(self)) {
+    if (takeCrash(self, ABORT_EXIT_CODE)) {
         writeOwnedCrash(nullptr, self);
     }
     TerminateProcess(GetCurrentProcess(), ABORT_EXIT_CODE);

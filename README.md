@@ -198,6 +198,13 @@ the restored action: a fault from the hardware (SIGSEGV, SIGBUS, SIGILL or SIGFP
 faults again, while SIGTRAP, SIGABRT and a sent signal are raised again. Under the default
 actions the first of the two signals delivered ends the process.
 
+A crash cannot keep the process alive. On macOS and Linux the handler arms `alarm()` for 120 s at
+its start; when it fires (stderr is a full pipe, the home folder's file system hangs), the process
+ends by the crash signal under its default action, so the crash report or core dump still comes.
+The handler puts SIGALRM's action and an earlier `alarm()` back when it finishes in time. On
+Windows the crashing thread waits at most 120 s for the dump. A second crashing thread waits for
+the first one at most 125 s (macOS, Linux) or 130 s (Windows), then ends the process itself.
+
 ### FileReader
 
 `FileReader::open(path, mode)` opens a file for `readAt(offset, destination)`, which has no shared

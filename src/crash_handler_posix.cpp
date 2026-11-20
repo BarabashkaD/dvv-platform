@@ -42,8 +42,12 @@ constexpr std::size_t LINE_CAPACITY = NAME_CAPACITY + PATH_CAPACITY + 64;
 constexpr std::size_t WRITE_BUFFER_BYTES = std::size_t{64} * 1024;
 constexpr std::size_t ALTERNATE_STACK_BYTES = std::size_t{256} * 1024;
 constexpr std::size_t SIGNAL_COUNT = std::size(CRASH_SIGNALS);
-// A thread that crashes while another one writes waits this long for it, in 1 ms turns.
-constexpr int WAIT_TURNS = 120'000;
+// The time limit of a crash: the owner arms alarm() with it at the start of the handler, so a hung
+// owner (stderr a full pipe, a hung file system) cannot keep the process alive.
+constexpr unsigned TIME_LIMIT_SECONDS = 120;
+// A thread that crashes while another one writes waits for it in 1 ms turns, at most the time
+// limit and this much more; then it ends the process itself (when SIGALRM never arrives).
+constexpr unsigned WAIT_MARGIN_SECONDS = 5;
 
 // Process infrastructure, set once by installBackend. Trivially destructible at namespace scope,
 // so it is never destroyed: a crash in a static destructor still finds it. The buffers live here,
@@ -56,9 +60,13 @@ struct CrashState {
     std::size_t processLength;
     std::int64_t offsetSeconds;  // local time minus UTC at install
     const dvv::Logger* logger;
-    std::atomic<int> owner;  // 1 once a thread has taken the crash
-    std::atomic<int> done;   // 1 once the owner has restored the previous actions
-    int file;                // the snapshot file while it is written
+    std::atomic<int> owner;                  // 1 once a thread has taken the crash
+    std::atomic<int> done;                   // 1 once the owner has restored the previous actions
+    std::atomic<int> crashSignal;            // the owner's signal, for the time limit
+    std::atomic<unsigned> timeLimitSeconds;  // 0: TIME_LIMIT_SECONDS (setCrashTimeLimit)
+    unsigned previousAlarmSeconds;           // what was left of an alarm() before the crash
+    struct sigaction previousAlarmAction;    // SIGALRM's action before the crash
+    int file;                                // the snapshot file while it is written
     bool writeFailed;
     std::size_t buffered;
     char buffer[WRITE_BUFFER_BYTES];
@@ -70,6 +78,7 @@ struct CrashState {
 };
 static_assert(std::is_trivially_destructible_v<CrashState>);
 static_assert(std::atomic<int>::is_always_lock_free);
+static_assert(std::atomic<unsigned>::is_always_lock_free);
 constinit CrashState state{};
 
 // write(2) of all `size` bytes, retrying EINTR and partial writes; false on any other failure.
@@ -225,21 +234,75 @@ void passOn(int signal, const siginfo_t& info) noexcept {
     }
 }
 
+// Ends the process by `signal` under its default action (a core dump or the system's crash
+// report), from any thread, also inside the handler, where the crash signals are blocked.
+void endByDefaultAction(int signal) noexcept {
+    struct sigaction action{};
+    action.sa_handler = SIG_DFL;
+    sigemptyset(&action.sa_mask);
+    static_cast<void>(::sigaction(signal, &action, nullptr));
+    sigset_t unblocked{};
+    sigemptyset(&unblocked);
+    sigaddset(&unblocked, signal);
+    static_cast<void>(::pthread_sigmask(SIG_UNBLOCK, &unblocked, nullptr));
+    static_cast<void>(::raise(signal));
+    ::_exit(128 + signal);  // not reached: the default action of each crash signal ends the process
+}
+
+// The time limit in seconds.
+unsigned timeLimit() noexcept {
+    const unsigned seconds = state.timeLimitSeconds.load();
+    return seconds != 0 ? seconds : TIME_LIMIT_SECONDS;
+}
+
+// SIGALRM at the time limit: the owner has hung; the process ends by the crash signal.
+void onTimeLimit(int /*signal*/) {
+    endByDefaultAction(state.crashSignal.load());
+}
+
+// The owner's first step: SIGALRM to onTimeLimit and alarm() at the time limit, keeping what was
+// set before.
+void armTimeLimit(int signal) noexcept {
+    state.crashSignal.store(signal);
+    struct sigaction action{};
+    action.sa_handler = &onTimeLimit;
+    sigemptyset(&action.sa_mask);
+    static_cast<void>(::sigaction(SIGALRM, &action, &state.previousAlarmAction));
+    state.previousAlarmSeconds = ::alarm(timeLimit());
+}
+
+// Puts back the alarm and SIGALRM's action of before the crash, so a process that a restored
+// action lets run on keeps them.
+void disarmTimeLimit() noexcept {
+    static_cast<void>(::alarm(0));
+    static_cast<void>(::sigaction(SIGALRM, &state.previousAlarmAction, nullptr));
+    if (state.previousAlarmSeconds != 0) {
+        static_cast<void>(::alarm(state.previousAlarmSeconds));
+    }
+}
+
 // The fatal-signal handler. Async-signal-safe calls only.
 void onCrashSignal(int signal, siginfo_t* info, void* /*context*/) {
     const int saved_errno = errno;
     int expected = 0;
     if (!state.owner.compare_exchange_strong(expected, 1)) {
-        // Another thread writes: wait for it, then let this signal take its course too.
+        // Another thread writes: wait for it, then let this signal take its course too. When the
+        // owner hangs, its alarm ends the process; when that alarm never comes, this wait's own
+        // limit does.
         timespec turn{};
         turn.tv_nsec = 1'000'000;
-        for (int i = 0; i < WAIT_TURNS && state.done.load() == 0; ++i) {
+        const std::uint64_t turns = std::uint64_t{timeLimit() + WAIT_MARGIN_SECONDS} * 1000U;
+        for (std::uint64_t i = 0; i < turns && state.done.load() == 0; ++i) {
             static_cast<void>(::nanosleep(&turn, nullptr));
+        }
+        if (state.done.load() == 0) {
+            endByDefaultAction(signal);
         }
         passOn(signal, *info);
         errno = saved_errno;
         return;
     }
+    armTimeLimit(signal);
     const std::span<char> line(state.line);
     std::size_t length = 0;
     if (appendText(line, length, std::string_view(state.app, state.appLength)) &&
@@ -250,6 +313,7 @@ void onCrashSignal(int signal, siginfo_t* info, void* /*context*/) {
     }
     writeSnapshotFile();
     restorePreviousActions();
+    disarmTimeLimit();
     state.done.store(1);
     passOn(signal, *info);
     errno = saved_errno;
@@ -343,6 +407,10 @@ bool faultRepeats(int signal, const siginfo_t& info) noexcept {
     const bool fault =
         signal == SIGSEGV || signal == SIGBUS || signal == SIGILL || signal == SIGFPE;
     return fault && !signalWasSent(signal, info);
+}
+
+void setCrashTimeLimit(unsigned seconds) noexcept {
+    state.timeLimitSeconds.store(seconds);
 }
 
 BackendStatus installBackend(const CrashBackendSetup& setup) {

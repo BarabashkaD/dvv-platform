@@ -410,6 +410,19 @@ if(EXISTS "${WORK_DIR}/first-run/${data_root}/${APP}")
     problem("a run without a crash created ${data_root}/${APP}")
 endif()
 
+# 9. A hung crash (macOS, Linux): stderr is a full pipe, so the handler blocks at its first line;
+# the child's 2 s time limit ends the process by the crash signal.
+if(NOT CMAKE_HOST_WIN32)
+    fresh_case(hang)
+    run_child(hang hang)
+    if(NOT run_result STREQUAL "Segmentation fault")
+        problem("the hung crash did not end by SIGSEGV")
+    endif()
+    if(NOT run_seconds LESS 30)
+        problem("the hung crash took ${run_seconds} s, expected less than 30")
+    endif()
+endif()
+
 get_property(problems GLOBAL PROPERTY crash_problems)
 if(NOT "${problems}" STREQUAL "")
     message(FATAL_ERROR "crash test problems:\n${problems}")

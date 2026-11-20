@@ -26,6 +26,12 @@ struct CrashHandlerOptions {
 //   <number>" on stderr; the crash snapshot to <stem>.dvvlog, then "<app>: crash log <path>"; then
 //   the signal takes its course under the action that was installed before (by default the
 //   system's crash report on macOS, a core dump where Linux enables them).
+// A crash cannot keep the process alive: on macOS and Linux the handler arms alarm() for 120 s
+// at its start (SIGALRM's action and an earlier alarm are put back after it), and when it fires
+// (a blocked stderr, a hung file system) the process ends by the crash signal under its default
+// action; on Windows the crashing thread waits at most 120 s for the dump. A second crashing
+// thread waits for the first one at most 125 s (macOS, Linux) or 130 s (Windows), then ends the
+// process itself the same way.
 // The snapshot is written as <stem>.dvvlog.part and renamed to <stem>.dvvlog once written, so a
 // .dvvlog file is never half written; a crash inside the handler can leave the .part file, which
 // is never reported. The time in <stem> is the crash time. The crashes folder and every missing

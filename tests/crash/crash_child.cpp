@@ -2,9 +2,11 @@
 //   dvv_platform_crash_child <process> [<app>]
 // installs the crash handler as <process> (app "dvv-crash-test" unless named) with a sink that
 // prints each record's message to stdout, then crashes as DVV_PLATFORM_TEST_CRASH asks: a mode of
-// crashIfRequested, "sink" (a fault inside the sink, synchronous logger) or "chain" (macOS, Linux:
-// a fault under the child's own SIGSEGV handler, installed before the crash handler). Without the
-// variable it only installs, which reports earlier crashes, and exits 0.
+// crashIfRequested, "sink" (a fault inside the sink, synchronous logger), "chain" (macOS, Linux: a
+// fault under the child's own SIGSEGV handler, installed before the crash handler) or "hang"
+// (macOS, Linux: a fault while stderr is a full pipe, so the handler hangs at its first line and
+// its 2 s time limit must end the process). Without the variable it only installs, which reports
+// earlier crashes, and exits 0.
 #include <atomic>
 #include <cstdio>
 #include <memory>
@@ -14,6 +16,7 @@
 #include <utility>
 
 #if !defined(_WIN32)
+#include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
 #endif
@@ -21,6 +24,9 @@
 #include "dvv/base/environment.h"
 #include "dvv/base/log.h"
 #include "dvv/platform/crash_handler.h"
+#if !defined(_WIN32)
+#include "crash_handler_posix.h"
+#endif
 
 namespace {
 
@@ -61,6 +67,30 @@ void previousHandler(int /*signal*/) {
     static_cast<void>(::write(STDOUT_FILENO, TEXT.data(), TEXT.size()));
     ::_exit(42);
 }
+
+// Makes stderr a pipe that is full and never read, so the crash handler's first write to it blocks
+// for good. The read end stays open (a closed one would end the write with EPIPE).
+bool fillStderr() {
+    int ends[2] = {-1, -1};
+    if (::pipe(ends) != 0) {
+        return false;
+    }
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-vararg): fcntl(2) is variadic
+    const int flags = ::fcntl(ends[1], F_GETFL);
+    if (flags < 0 || ::fcntl(ends[1], F_SETFL, flags | O_NONBLOCK) != 0) {
+        return false;
+    }
+    const char filler[1024] = {};
+    while (::write(ends[1], filler, sizeof filler) > 0) {
+    }
+    while (::write(ends[1], filler, 1) > 0) {  // the room a whole block no longer fits in
+    }
+    if (::fcntl(ends[1], F_SETFL, flags) != 0) {
+        return false;
+    }
+    // NOLINTEND(cppcoreguidelines-pro-type-vararg)
+    return ::dup2(ends[1], STDERR_FILENO) == STDERR_FILENO;
+}
 #endif
 
 }  // namespace
@@ -96,6 +126,14 @@ int main(int argc, char** argv) {
         }
 #endif
     }
+    if (mode == "hang") {
+#if defined(_WIN32)
+        static_cast<void>(std::fputs("hang is POSIX only\n", stdout));
+        return 2;
+#else
+        dvv::platform::detail::setCrashTimeLimit(2);
+#endif
+    }
 
     dvv::platform::installCrashHandler({.app = app, .process = process});
     if (!mode) {
@@ -107,6 +145,14 @@ int main(int argc, char** argv) {
     DVV_LOG_INFO("crash child marker {}", *mode);
     if (*mode == "chain") {
         writeThroughNull();
+    } else if (*mode == "hang") {
+#if !defined(_WIN32)
+        if (!fillStderr()) {
+            std::perror("fillStderr");
+            return 2;
+        }
+        writeThroughNull();
+#endif
     } else {
         dvv::platform::crashIfRequested("DVV_PLATFORM_TEST_CRASH");
     }

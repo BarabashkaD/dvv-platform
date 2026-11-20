@@ -15,4 +15,9 @@ inline constexpr int CRASH_SIGNALS[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGTRAP
 // instruction, so a return would run on), SIGABRT and every sent signal: those are raised again.
 // Shared (crash_handler_posix.cpp).
 [[nodiscard]] bool faultRepeats(int signal, const siginfo_t& info) noexcept;
+// The time limit of a crash in seconds (0: the default, 120): the handler arms alarm() with it at
+// its start, and when SIGALRM comes first the process ends by the crash signal under its default
+// action; a thread that waits for the crashing one waits at most 5 s longer, then does the same.
+// The crash test's child sets a short one. Shared (crash_handler_posix.cpp).
+void setCrashTimeLimit(unsigned seconds) noexcept;
 }  // namespace dvv::platform::detail

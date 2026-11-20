@@ -37,8 +37,11 @@ GitHub Releases).
   snapshot, then the system's crash report or core dump follows; a second crashing thread waits
   for the first one's files, then its signal takes its course under the restored action (a
   hardware fault faults again; SIGTRAP, SIGABRT and a sent signal are raised again). stderr names
-  the cause and the files. A snapshot is named `.dvvlog` only once written. The next start logs
-  the snapshots of earlier crashed runs. No logger call after a crash.
+  the cause and the files. A snapshot is named `.dvvlog` only once written. A hung crash ends
+  the process after a time limit (macOS and Linux: `alarm()` at 120 s, then the crash signal
+  under its default action; a second crashing thread waits at most 125 s on macOS and Linux, 130 s
+  on Windows). The next start logs the snapshots of earlier crashed runs. No logger call after a
+  crash.
 
 ### Changed
 - Requires dvv-base 0.5.0 and dvv-build 0.5.1. A dependent that moves to dvv-platform 0.3.0 also

@@ -79,6 +79,8 @@ set_property(TEST dvv_platform.surface APPEND PROPERTY LABELS sanity)
 if(NOT DVV_SANITIZE)
     add_executable(dvv_platform_crash_child crash/crash_child.cpp)
     target_link_libraries(dvv_platform_crash_child PRIVATE dvv::platform)
+    # Mode "hang" shortens the time limit through src/crash_handler_posix.h.
+    target_include_directories(dvv_platform_crash_child PRIVATE ${dvv_platform_SOURCE_DIR}/src)
     dvv_set_compiler_options(dvv_platform_crash_child)
     add_test(NAME dvv_platform.crash
              COMMAND ${CMAKE_COMMAND}
