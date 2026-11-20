@@ -471,18 +471,18 @@ void requireStackGuarantee() {
 
 }  // namespace
 
-BackendStatus installBackend(const CrashBackendSetup& setup) {
-    const std::wstring& folder = setup.folder.native();
+BackendStatus installBackend(const CrashBackendOptions& options) {
+    const std::wstring& folder = options.folder.native();
     if (!copyText(state.folder, std::wstring_view(folder))) {
         return {.off = "the crash folder path is too long"};
     }
     state.folderLength = folder.size();
-    state.rootLength = setup.folder.root_path().native().size();
+    state.rootLength = options.folder.root_path().native().size();
     // §4.9 step 2 limits both names to 63 bytes, so they fit; a name that did not would be empty.
-    state.appLength = copyText(state.app, std::string_view(setup.app)) ? setup.app.size() : 0;
+    state.appLength = copyText(state.app, std::string_view(options.app)) ? options.app.size() : 0;
     state.exeLength =
-        copyText(state.exe, std::string_view(setup.process)) ? setup.process.size() : 0;
-    state.logger = setup.logger;
+        copyText(state.exe, std::string_view(options.process)) ? options.process.size() : 0;
+    state.logger = options.logger;
     state.file = INVALID_HANDLE_VALUE;
 
     // The minidump needs dbghelp and the dump thread; without either the handler stays on for the

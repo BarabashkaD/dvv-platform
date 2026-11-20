@@ -10,7 +10,7 @@
 #include "dvv/base/log.h"
 
 namespace dvv::platform::detail {
-struct CrashBackendSetup {
+struct CrashBackendOptions {
     std::filesystem::path folder;  // <userDataDir(app)>/crashes; its parents are made at a crash
     std::string app;
     std::string process;
@@ -25,7 +25,7 @@ struct BackendStatus {
     std::string noDumps{};
 };
 // Installs the OS handler (per OS: crash_handler_win32.cpp, crash_handler_posix.cpp).
-[[nodiscard]] BackendStatus installBackend(const CrashBackendSetup& setup);
+[[nodiscard]] BackendStatus installBackend(const CrashBackendOptions& options);
 // The one Warn line for `status`: "crash handler is off: <off>", else "crash dumps are off:
 // <noDumps>", else "" (installed in full).
 [[nodiscard]] std::string backendWarning(const BackendStatus& status);

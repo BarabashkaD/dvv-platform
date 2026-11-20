@@ -10,7 +10,8 @@ struct CrashHandlerOptions {
     // to <dvv::paths::userDataDir(app)>/crashes; the stderr lines start with "<app>: ".
     std::string app;
     // This executable's name in the crash file names: 1 to 63 ASCII letters, digits, '.', '_' or
-    // '-' (e.g. "rawreel-cli"). Files: <process>-<yyyymmdd-hhmmss>-<pid>.dmp (Windows) and .dvvlog.
+    // '-', not starting with '.' (e.g. "rawreel-cli"). Files: <process>-<yyyymmdd-hhmmss>-<pid>.dmp
+    // (Windows) and .dvvlog.
     std::string process;
 };
 

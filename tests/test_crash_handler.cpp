@@ -85,6 +85,9 @@ TEST_SUITE("crash_handler") {
         CHECK_FALSE(isValidProcessName("\xC3\xA9"));
         CHECK(isValidProcessName("rawreel-gui"));
         CHECK(isValidProcessName("rawreel.cli_2"));
+        CHECK_FALSE(isValidProcessName("."));  // a leading '.' would hide the crash files
+        CHECK_FALSE(isValidProcessName(".."));
+        CHECK_FALSE(isValidProcessName(".rawreel"));
     }
 
     TEST_CASE("appendNumber") {

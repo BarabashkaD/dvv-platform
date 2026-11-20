@@ -413,15 +413,15 @@ void setCrashTimeLimit(unsigned seconds) noexcept {
     state.timeLimitSeconds.store(seconds);
 }
 
-BackendStatus installBackend(const CrashBackendSetup& setup) {
-    if (!copyText(state.folder, dvv::pathText(setup.folder))) {
+BackendStatus installBackend(const CrashBackendOptions& options) {
+    if (!copyText(state.folder, dvv::pathText(options.folder))) {
         return {.off = "the crash folder path is too long"};
     }
     // §4.9 step 2 limits both names to 63 bytes, so they fit; a name that did not would be empty.
-    state.appLength = copyText(state.app, setup.app) ? setup.app.size() : 0;
-    state.processLength = copyText(state.process, setup.process) ? setup.process.size() : 0;
+    state.appLength = copyText(state.app, options.app) ? options.app.size() : 0;
+    state.processLength = copyText(state.process, options.process) ? options.process.size() : 0;
     state.offsetSeconds = localOffsetSeconds(std::chrono::system_clock::now());
-    state.logger = setup.logger;
+    state.logger = options.logger;
     state.file = -1;
 
     // The installing thread's alternate stack, so a stack overflow can run the handler; kept when

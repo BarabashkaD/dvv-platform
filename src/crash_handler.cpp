@@ -138,7 +138,8 @@ bool isValidAppName(std::string_view app) noexcept {
 }
 
 bool isValidProcessName(std::string_view process) noexcept {
-    return !process.empty() && process.size() <= MAX_NAME_BYTES &&
+    // No leading '.': the crash files would be hidden files on macOS and Linux.
+    return !process.empty() && process.size() <= MAX_NAME_BYTES && !process.starts_with('.') &&
            std::ranges::all_of(process, [](char c) {
                return isDigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' ||
                       c == '_' || c == '-';
@@ -281,7 +282,7 @@ void installCrashHandler(const CrashHandlerOptions& options) {
         if (!detail::isValidProcessName(options.process)) {
             warn(
                 std::format("the process name '{}' is not 1 to 63 ASCII letters, digits, '.', "
-                            "'_' or '-'",
+                            "'_' or '-' that do not start with '.'",
                             options.process));
             return;
         }
@@ -290,15 +291,15 @@ void installCrashHandler(const CrashHandlerOptions& options) {
             warn(base.error().describe());
             return;
         }
-        const detail::CrashBackendSetup setup{.folder = *base / "crashes",
-                                              .app = options.app,
-                                              .process = options.process,
-                                              .logger = &logger};
-        if (const std::string warning = detail::backendWarning(detail::installBackend(setup));
+        const detail::CrashBackendOptions backend{.folder = *base / "crashes",
+                                                  .app = options.app,
+                                                  .process = options.process,
+                                                  .logger = &logger};
+        if (const std::string warning = detail::backendWarning(detail::installBackend(backend));
             !warning.empty()) {
             logger.write(dvv::LogLevel::Warn, warning);
         }
-        detail::reportEarlierSnapshots(setup.folder, options.process, 8);
+        detail::reportEarlierSnapshots(backend.folder, options.process, 8);
     });
 }
 
