@@ -41,14 +41,15 @@ endif()
 
 add_library(dvv_platform STATIC
     src/aligned_buffer.cpp
+    src/crash_handler.cpp
     src/dynamic_library.cpp
     src/file_reader.cpp
     src/file_writer.cpp
     src/native_window.cpp
     src/surface.cpp
     src/window_handle.cpp)
-dvv_os_sources(dvv_platform src/dynamic_library src/file_reader src/file_writer src/surface
-               src/window_handle)
+dvv_os_sources(dvv_platform src/crash_handler src/dynamic_library src/file_reader src/file_writer
+               src/surface src/window_handle)
 add_library(dvv::platform ALIAS dvv_platform)
 set_target_properties(dvv_platform PROPERTIES EXPORT_NAME platform)
 target_include_directories(dvv_platform PUBLIC
