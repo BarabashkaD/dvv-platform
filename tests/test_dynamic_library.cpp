@@ -145,14 +145,14 @@ TEST_CASE("a destroyed library is unloaded") {
 }
 #endif
 
-TEST_CASE("DllDirectory finds a dependency in the library's own folder") {
+TEST_CASE("LibraryDirectory finds a dependency in the library's own folder") {
 #if defined(_WIN32)
     // The default search does not look in the library's folder, so its dependency is missing. This
     // also proves that the dependency is not loaded yet, which would satisfy any search.
     CHECK(openError(DVV_PLATFORM_TEST_DEPENDENT).code == dvv::Errc::Unsupported);
 #endif
     const auto library =
-        DynamicLibrary::open(DVV_PLATFORM_TEST_DEPENDENT, LibrarySearch::DllDirectory);
+        DynamicLibrary::open(DVV_PLATFORM_TEST_DEPENDENT, LibrarySearch::LibraryDirectory);
     REQUIRE(library.has_value());
     CHECK(library->name() == DVV_PLATFORM_TEST_DEPENDENT);
     const auto function = library->function<TestFunction>("dvvTestDependentValue");
@@ -160,7 +160,7 @@ TEST_CASE("DllDirectory finds a dependency in the library's own folder") {
     CHECK(function() == 43);
 }
 
-TEST_CASE("DllDirectory takes absolute paths only") {
+TEST_CASE("LibraryDirectory takes absolute paths only") {
     std::vector<std::string_view> relative{"dll-directory/x.dll", DVV_PLATFORM_TEST_MODULE_NAME,
                                            "x"};
 #if defined(_WIN32)
@@ -168,9 +168,10 @@ TEST_CASE("DllDirectory takes absolute paths only") {
 #endif
     for (const std::string_view name : relative) {
         CAPTURE(name);
-        const dvv::Error error = openError(name, LibrarySearch::DllDirectory);
+        const dvv::Error error = openError(name, LibrarySearch::LibraryDirectory);
         CHECK(error.code == dvv::Errc::Internal);
-        CHECK(error.message.find("must be an absolute path") != std::string::npos);
+        CHECK(error.message.ends_with(
+            "must be an absolute path with LibrarySearch::LibraryDirectory"));
     }
 
     const std::u8string missing_u8 =
@@ -178,11 +179,39 @@ TEST_CASE("DllDirectory takes absolute paths only") {
          "dvv-no-such-library.dll")
             .generic_u8string();
     const std::string missing(missing_u8.begin(), missing_u8.end());
-    const dvv::Error error = openError(missing, LibrarySearch::DllDirectory);
+    const dvv::Error error = openError(missing, LibrarySearch::LibraryDirectory);
     CHECK(error.code == dvv::Errc::Unsupported);
     const std::string prefix = "'" + missing + "' could not be loaded: ";
     CHECK(error.message.starts_with(prefix));
     CHECK(error.message.size() > prefix.size());  // the system's text follows
+}
+
+TEST_CASE("libraryFileName gives this OS's name") {
+#if defined(_WIN32)
+    CHECK(dvv::platform::libraryFileName("avutil", 60) == "avutil-60.dll");
+    CHECK(dvv::platform::libraryFileName("vulkan", 1) == "vulkan-1.dll");
+#elif defined(__APPLE__)
+    CHECK(dvv::platform::libraryFileName("avutil", 60) == "libavutil.60.dylib");
+    CHECK(dvv::platform::libraryFileName("vulkan", 1) == "libvulkan.1.dylib");
+#else
+    CHECK(dvv::platform::libraryFileName("avutil", 60) == "libavutil.so.60");
+    CHECK(dvv::platform::libraryFileName("vulkan", 1) == "libvulkan.so.1");
+#endif
+}
+
+// Goes in 1.0.0 with DllDirectory.
+TEST_CASE("DllDirectory is LibraryDirectory") {
+    static_assert(LibrarySearch::DllDirectory == LibrarySearch::LibraryDirectory);
+    const auto library =
+        DynamicLibrary::open(DVV_PLATFORM_TEST_DEPENDENT, LibrarySearch::DllDirectory);
+    CHECK(library.has_value());
+    if (library) {
+        const auto function = library->function<TestFunction>("dvvTestDependentValue");
+        CHECK(function != nullptr);
+        if (function != nullptr) {
+            CHECK(function() == 43);
+        }
+    }
 }
 
 // Keep this case last: a kept library is never unloaded, so later cases could not check unloading.

@@ -1,3 +1,4 @@
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <expected>
@@ -9,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -19,6 +21,7 @@
 
 #include "dvv/base/environment.h"
 #include "dvv/platform/testing/test_window.h"
+#include "dvv/platform/window_handle_xlib.h"
 
 namespace dvv::platform::testing {
 
@@ -114,6 +117,13 @@ NativeWindow TestWindow::native() const noexcept {
         return std::monostate{};
     }
     return XlibWindow{.display = state_->display, .window = state_->window};
+}
+
+WindowHandle TestWindow::handle() const noexcept {
+    if (!state_) {
+        return {};
+    }
+    return windowHandleOf(XlibWindow{.display = state_->display, .window = state_->window});
 }
 
 PixelSize TestWindow::clientSize() const {

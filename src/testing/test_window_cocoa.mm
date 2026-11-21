@@ -17,6 +17,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 #include "dvv/platform/testing/test_window.h"
+#include "dvv/platform/window_handle_metal.h"
 
 // The content view: its backing layer is a CAMetalLayer, which a Vulkan surface is created on.
 @interface DvvMetalView : NSView
@@ -188,6 +189,13 @@ NativeWindow TestWindow::native() const noexcept {
         return std::monostate{};
     }
     return MetalWindow{.layer = (__bridge void*)state_->view.layer};
+}
+
+WindowHandle TestWindow::handle() const noexcept {
+    if (!state_) {
+        return {};
+    }
+    return windowHandleOf(MetalWindow{.layer = (__bridge void*)state_->view.layer});
 }
 
 PixelSize TestWindow::clientSize() const {

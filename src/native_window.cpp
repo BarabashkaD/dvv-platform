@@ -4,26 +4,7 @@
 
 namespace dvv::platform {
 
-std::string_view windowSystemName(WindowSystem system) noexcept {
-    switch (system) {
-        case WindowSystem::Win32: return "Win32";
-        case WindowSystem::Xlib: return "Xlib";
-        case WindowSystem::Metal: return "Metal";
-    }
-    return {};
-}
-
-WindowSystem defaultWindowSystem() noexcept {
-#if defined(_WIN32)
-    return WindowSystem::Win32;
-#elif defined(__APPLE__)
-    return WindowSystem::Metal;
-#else
-    return WindowSystem::Xlib;
-#endif
-}
-
-// holds_alternative instead of std::visit, which may throw std::bad_variant_access.
+// holds_alternative and get_if instead of std::visit, which may throw std::bad_variant_access.
 std::optional<WindowSystem> windowSystemOf(const NativeWindow& window) noexcept {
     if (std::holds_alternative<Win32Window>(window)) {
         return WindowSystem::Win32;
@@ -35,6 +16,19 @@ std::optional<WindowSystem> windowSystemOf(const NativeWindow& window) noexcept 
         return WindowSystem::Metal;
     }
     return std::nullopt;
+}
+
+WindowHandle windowHandleOf(const NativeWindow& window) noexcept {
+    if (const auto* const win32 = std::get_if<Win32Window>(&window)) {
+        return windowHandleOf(*win32);
+    }
+    if (const auto* const xlib = std::get_if<XlibWindow>(&window)) {
+        return windowHandleOf(*xlib);
+    }
+    if (const auto* const metal = std::get_if<MetalWindow>(&window)) {
+        return windowHandleOf(*metal);
+    }
+    return {};
 }
 
 }  // namespace dvv::platform
