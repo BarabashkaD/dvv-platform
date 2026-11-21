@@ -9,7 +9,6 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
-#include <memory>
 #include <random>
 #include <span>
 #include <string>
@@ -28,12 +27,16 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <unistd.h>
 #endif
 
 #include "dvv/base/error.h"
-#include "dvv/base/log.h"
 #include "dvv/platform/file_reader.h"
 #include "file_reader_detail.h"
+#if !defined(_WIN32)
+#include "file_reader_posix.h"
+#endif
+#include "test_support.h"
 
 namespace {
 
@@ -45,38 +48,9 @@ using dvv::platform::detail::NativeOpen;
 using dvv::platform::detail::NativeOps;
 using dvv::platform::detail::NativeRead;
 using dvv::platform::detail::NO_HANDLE;
-
-// A unique directory under the system temporary directory, removed with its contents.
-class TemporaryDirectory {
-public:
-    TemporaryDirectory() {
-        std::random_device random;
-        const fs::path base = fs::temp_directory_path();
-        for (int attempt = 0; attempt < 100; ++attempt) {
-            fs::path candidate =
-                base / std::format("dvv-file-reader-{:08x}{:08x}", random(), random());
-            std::error_code error;
-            if (fs::create_directory(candidate, error)) {
-                path_ = std::move(candidate);
-                return;
-            }
-        }
-        FAIL("no temporary directory could be created");
-    }
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-    TemporaryDirectory(TemporaryDirectory&&) = delete;
-    TemporaryDirectory& operator=(TemporaryDirectory&&) = delete;
-    ~TemporaryDirectory() {
-        std::error_code error;
-        fs::remove_all(path_, error);
-    }
-
-    [[nodiscard]] const fs::path& path() const noexcept { return path_; }
-
-private:
-    fs::path path_;
-};
+using dvv::platform::detail::OpenMode;
+using dvv::platform::test::LoggerScope;
+using dvv::platform::test::TemporaryDirectory;
 
 std::byte pattern(std::uint64_t i) {
     return static_cast<std::byte>((i * 131 + (i >> 8) * 7) & 0xFF);
@@ -155,42 +129,14 @@ std::vector<std::byte> readWhole(const FileReader& reader) {
     return {buffer.get(), buffer.get() + *bytes};
 }
 
-// Restores the logger's level and removes the test's sinks (the tests add no other sinks).
-class LoggerScope {
-public:
-    LoggerScope() : level_(dvv::Logger::instance().level()) {
-        dvv::Logger::instance().clearSinks();
-        dvv::Logger::instance().addSink(sink_);
-        dvv::Logger::instance().setLevel(dvv::LogLevel::Info);
-    }
-    LoggerScope(const LoggerScope&) = delete;
-    LoggerScope& operator=(const LoggerScope&) = delete;
-    LoggerScope(LoggerScope&&) = delete;
-    LoggerScope& operator=(LoggerScope&&) = delete;
-    ~LoggerScope() {
-        dvv::Logger::instance().clearSinks();
-        dvv::Logger::instance().setLevel(level_);
-    }
-
-    [[nodiscard]] std::size_t count(std::string_view text) const {
-        const std::vector<std::string> lines = sink_->lines();
-        return static_cast<std::size_t>(std::ranges::count_if(
-            lines, [text](const std::string& line) { return line.contains(text); }));
-    }
-
-private:
-    dvv::LogLevel level_;
-    std::shared_ptr<dvv::MemorySink> sink_ = std::make_shared<dvv::MemorySink>();
-};
-
 // Injected failures (the NativeOps seam takes plain function pointers).
 constexpr int INJECTED_ERROR = 5;  // ERROR_ACCESS_DENIED / EIO
 
-NativeOpen refuseUnbufferedOpen(const fs::path& path, bool unbuffered) noexcept {
-    if (unbuffered) {
+NativeOpen refuseUnbufferedOpen(const fs::path& path, OpenMode mode) noexcept {
+    if (mode == OpenMode::Unbuffered) {
         return NativeOpen{.handle = NO_HANDLE, .error = INJECTED_ERROR};
     }
-    return dvv::platform::detail::openNative(path, false);
+    return dvv::platform::detail::openNative(path, OpenMode::Buffered);
 }
 
 std::uint32_t unknownSector(std::intptr_t /*handle*/) noexcept {
@@ -271,24 +217,6 @@ NativeOps autoOps() {
 }  // namespace
 
 TEST_SUITE("file_reader") {
-    TEST_CASE("allocateAligned returns aligned memory") {
-        const std::array<std::pair<std::size_t, std::size_t>, 4> cases{
-            {{1, 1}, {100, 512}, {8192, 4096}, {5000, 65536}}};
-        for (const auto& [bytes, alignment] : cases) {
-            CAPTURE(bytes);
-            CAPTURE(alignment);
-            const auto buffer = allocateAligned(bytes, alignment);
-            REQUIRE(buffer.has_value());
-            CHECK(reinterpret_cast<std::uintptr_t>(buffer->get()) % alignment == 0);
-        }
-        const auto empty = allocateAligned(0, 64);
-        REQUIRE_FALSE(empty.has_value());
-        CHECK(empty.error().code == dvv::Errc::Internal);
-        const auto odd = allocateAligned(64, 3);
-        REQUIRE_FALSE(odd.has_value());
-        CHECK(odd.error().code == dvv::Errc::Internal);
-    }
-
     TEST_CASE("a buffered reader reads any range") {
         const TemporaryDirectory dir;
         const fs::path file = dir.path() / "buffered.bin";
@@ -430,11 +358,12 @@ TEST_SUITE("file_reader") {
 
 #if defined(_WIN32)
     TEST_CASE("the Windows open flags of each mode") {
-        const std::uint32_t buffered = dvv::platform::detail::nativeOpenFlags(false);
+        const std::uint32_t buffered = dvv::platform::detail::nativeOpenFlags(OpenMode::Buffered);
         CHECK((buffered & FILE_FLAG_SEQUENTIAL_SCAN) != 0);
         CHECK((buffered & FILE_FLAG_OVERLAPPED) == 0);  // synchronous handles
         CHECK((buffered & FILE_FLAG_NO_BUFFERING) == 0);
-        const std::uint32_t unbuffered = dvv::platform::detail::nativeOpenFlags(true);
+        const std::uint32_t unbuffered =
+            dvv::platform::detail::nativeOpenFlags(OpenMode::Unbuffered);
         CHECK((unbuffered & FILE_FLAG_NO_BUFFERING) != 0);
         CHECK((unbuffered & FILE_FLAG_SEQUENTIAL_SCAN) == 0);
         CHECK((unbuffered & FILE_FLAG_OVERLAPPED) == 0);
@@ -444,8 +373,8 @@ TEST_SUITE("file_reader") {
 
 #if defined(__linux__)
     TEST_CASE("the Linux open flags of each mode") {
-        CHECK((dvv::platform::detail::nativeOpenFlags(false) & O_DIRECT) == 0);
-        CHECK((dvv::platform::detail::nativeOpenFlags(true) & O_DIRECT) != 0);
+        CHECK((dvv::platform::detail::nativeOpenFlags(OpenMode::Buffered) & O_DIRECT) == 0);
+        CHECK((dvv::platform::detail::nativeOpenFlags(OpenMode::Unbuffered) & O_DIRECT) != 0);
     }
 #endif
 
@@ -454,14 +383,28 @@ TEST_SUITE("file_reader") {
         // No O_DIRECT on macOS: F_NOCACHE is applied with fcntl after open and F_RDAHEAD is the
         // sequential hint. Neither can be read back, so the pure seam is what is checked.
         const std::uint32_t plain = O_RDONLY | O_CLOEXEC;
-        CHECK(dvv::platform::detail::nativeOpenFlags(false) == plain);
-        CHECK(dvv::platform::detail::nativeOpenFlags(true) == plain);
-        const auto buffered = dvv::platform::detail::nativeFcntlHints(false);
+        CHECK(dvv::platform::detail::nativeOpenFlags(OpenMode::Buffered) == plain);
+        CHECK(dvv::platform::detail::nativeOpenFlags(OpenMode::Unbuffered) == plain);
+        const auto buffered = dvv::platform::detail::nativeFcntlHints(OpenMode::Buffered);
         CHECK(buffered.readAhead);
         CHECK_FALSE(buffered.noCache);
-        const auto unbuffered = dvv::platform::detail::nativeFcntlHints(true);
+        const auto unbuffered = dvv::platform::detail::nativeFcntlHints(OpenMode::Unbuffered);
         CHECK(unbuffered.noCache);
         CHECK_FALSE(unbuffered.readAhead);
+    }
+#endif
+
+#if !defined(_WIN32)
+    TEST_CASE("applyOpenHints succeeds on a regular file") {
+        const TemporaryDirectory dir;
+        const fs::path file = dir.path() / "hints.bin";
+        writeFile(file, patternBytes(4096));
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+        const int fd = ::open(file.c_str(), O_RDONLY | O_CLOEXEC);
+        REQUIRE(fd >= 0);
+        CHECK(dvv::platform::detail::applyOpenHints(fd, OpenMode::Buffered) == 0);
+        CHECK(dvv::platform::detail::applyOpenHints(fd, OpenMode::Unbuffered) == 0);
+        ::close(fd);
     }
 #endif
 
@@ -763,6 +706,19 @@ TEST_SUITE("file_reader") {
         CHECK(missing.error().message.find(utf8(u8"ü")) != std::string::npos);
     }
 
+#if !defined(_WIN32)
+    TEST_CASE("a message shows a path that is not UTF-8 with U+FFFD") {
+        const TemporaryDirectory dir;
+        const fs::path missing = dir.path() / std::string("bad-\xFF.bin");
+        const auto reader = FileReader::open(missing);
+        CHECK_FALSE(reader.has_value());
+        if (!reader) {
+            CHECK(reader.error().code == dvv::Errc::Io);
+            CHECK(reader.error().message.contains("bad-\xEF\xBF\xBD.bin"));
+        }
+    }
+#endif
+
     TEST_CASE("a moved reader keeps the file; the moved-from one is closed") {
         const TemporaryDirectory dir;
         const fs::path file = dir.path() / "moved.bin";
@@ -798,6 +754,28 @@ TEST_SUITE("file_reader") {
         REQUIRE(again.has_value());
         CHECK(*again == std::min<std::size_t>(alignUp(64, al), 10000));
         CHECK(matchesPattern(std::span(aligned.get(), 64), 0));
+    }
+
+    TEST_CASE("a moved-from reader reports the empty state") {
+        const TemporaryDirectory dir;
+        const fs::path file = dir.path() / "empty-state.bin";
+        writeFile(file, patternBytes(4));
+        FileReader reader = openReader(file, FileReadMode::Buffered);
+        const FileReader other(std::move(reader));
+        CHECK(other.size() == 4);
+        // NOLINTBEGIN(bugprone-use-after-move): the moved-from state is what is tested
+        CHECK(reader.size() == 0);
+        CHECK(reader.alignment() == 1);
+        CHECK_FALSE(reader.unbuffered());
+        CHECK(reader.fallbackReason().empty());
+        CHECK(reader.path().empty());
+        std::array<std::byte, 4> buffer{};
+        const auto read = reader.readAt(0, buffer);
+        // NOLINTEND(bugprone-use-after-move)
+        CHECK_FALSE(read.has_value());
+        if (!read) {
+            CHECK(read.error().code == dvv::Errc::Internal);
+        }
     }
 
 #if defined(__linux__)

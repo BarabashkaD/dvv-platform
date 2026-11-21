@@ -6,8 +6,8 @@ find_package(doctest 2.5 REQUIRED CONFIG)
 add_library(dvv_platform_test_module MODULE test_module.cpp)
 dvv_set_compiler_options(dvv_platform_test_module)
 
-# LibrarySearch::DllDirectory: a run-time library whose dependency sits in its own folder, away from
-# the test executable and the working directory, so only a search of the library's own folder
+# LibrarySearch::LibraryDirectory: a run-time library whose dependency sits in its own folder, away
+# from the test executable and the working directory, so only a search of the library's own folder
 # finds it. $<CONFIG> in the folder keeps multi-config generators from adding their own subfolder.
 set(dll_directory "${CMAKE_CURRENT_BINARY_DIR}/dll-directory/$<CONFIG>")
 add_library(dvv_platform_test_dependency SHARED test_dependency.cpp)
@@ -22,11 +22,17 @@ dvv_set_compiler_options(dvv_platform_test_dependent)
 
 add_executable(dvv_platform_tests
     main.cpp
+    test_aligned_buffer.cpp
+    test_crash_handler.cpp
     test_dynamic_library.cpp
     test_file_reader.cpp
-    test_native_window.cpp)
+    test_file_writer.cpp
+    test_native_window.cpp
+    test_pixel_size.cpp
+    test_window_handle.cpp)
 target_link_libraries(dvv_platform_tests PRIVATE dvv::platform doctest::doctest)
-# The FileReader tests use the private seam header (src/file_reader_detail.h).
+# The FileReader, replaceFile and crash handler tests use the private seam headers
+# (src/file_reader_detail.h, src/file_writer_detail.h, src/crash_handler_detail.h).
 target_include_directories(dvv_platform_tests PRIVATE ${dvv_platform_SOURCE_DIR}/src)
 # doctest otherwise only forward-declares std::ostream, which breaks printing std types.
 target_compile_definitions(dvv_platform_tests PRIVATE
@@ -66,6 +72,26 @@ set_tests_properties(dvv_platform.surface PROPERTIES
     ENVIRONMENT DVV_LEAK_CHECK=fail
     ENVIRONMENT_MODIFICATION "${DVV_TEST_ENVIRONMENT}")
 set_property(TEST dvv_platform.surface APPEND PROPERTY LABELS sanity)
+
+# Crash test (spec §8): a child process crashes in each mode and the script checks the crash
+# handler's stderr lines, files and report. Not registered for sanitizer builds, whose own
+# fatal-signal handlers would stand between the crash and the handler.
+if(NOT DVV_SANITIZE)
+    add_executable(dvv_platform_crash_child crash/crash_child.cpp)
+    target_link_libraries(dvv_platform_crash_child PRIVATE dvv::platform)
+    # Mode "hang" shortens the time limit through src/crash_handler_posix.h.
+    target_include_directories(dvv_platform_crash_child PRIVATE ${dvv_platform_SOURCE_DIR}/src)
+    dvv_set_compiler_options(dvv_platform_crash_child)
+    add_test(NAME dvv_platform.crash
+             COMMAND ${CMAKE_COMMAND}
+                     -DCHILD=$<TARGET_FILE:dvv_platform_crash_child>
+                     -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/crash-home
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/crash/run-crash-tests.cmake)
+    # The timeout turns a hung child (each run has its own 60 s limit) into a failure.
+    set_tests_properties(dvv_platform.crash PROPERTIES
+        TIMEOUT 900
+        ENVIRONMENT_MODIFICATION "${DVV_TEST_ENVIRONMENT}")
+endif()
 
 # Package test (spec §3.1): install, then build a consumer with find_package(dvv_platform) and
 # another with dvv_platform in-tree. The whole build tree is installed (CMAKE_BINARY_DIR), so the

@@ -22,10 +22,10 @@ Result<DynamicLibrary> DynamicLibrary::open(std::string_view name, LibrarySearch
                                      "LibrarySearch::SystemDirectory",
                                      name));
     }
-    if (search == LibrarySearch::DllDirectory && !detail::isAbsolutePath(name)) {
+    if (search == LibrarySearch::LibraryDirectory && !detail::isAbsolutePath(name)) {
         return makeError(Errc::Internal,
                          std::format("DynamicLibrary::open: '{}' must be an absolute path with "
-                                     "LibrarySearch::DllDirectory",
+                                     "LibrarySearch::LibraryDirectory",
                                      name));
     }
     std::string owned(name);

@@ -1,7 +1,10 @@
+#include "file_reader_posix.h"
+
 #include <algorithm>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <format>
 #include <span>
 #include <string>
@@ -13,82 +16,30 @@
 
 #include "file_reader_detail.h"
 
+// The POSIX part shared by macOS and Linux; the open flags, the open hints and the sector size are
+// in file_reader_macos.cpp and file_reader_linux.cpp.
+
 namespace dvv::platform::detail {
 
 namespace {
 constexpr std::size_t MAX_CHUNK = std::size_t{1} << 30;  // below Linux's 0x7ffff000 per call
 }  // namespace
 
-// Auto reads buffered here (U-IO2); only an explicit Unbuffered uses O_DIRECT.
-const bool AUTO_TRIES_UNBUFFERED = false;
-
-std::uint32_t nativeOpenFlags(bool unbuffered) noexcept {
-#if defined(__APPLE__)
-    // No O_DIRECT on macOS: nativeFcntlHints() says what openNative applies after open.
-    static_cast<void>(unbuffered);
-    return static_cast<std::uint32_t>(O_RDONLY | O_CLOEXEC);
-#else
-    return static_cast<std::uint32_t>(O_RDONLY | O_CLOEXEC | (unbuffered ? O_DIRECT : 0));
-#endif
-}
-
-FcntlHints nativeFcntlHints(bool unbuffered) noexcept {
-#if defined(__APPLE__)
-    return {.noCache = unbuffered, .readAhead = !unbuffered};
-#else
-    static_cast<void>(unbuffered);
-    return {};
-#endif
-}
-
-NativeOpen openNative(const std::filesystem::path& path, bool unbuffered) noexcept {
+NativeOpen openNative(const std::filesystem::path& path, OpenMode mode) noexcept {
     int fd = -1;
     do {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
-        fd = ::open(path.c_str(), static_cast<int>(nativeOpenFlags(unbuffered)));
+        fd = ::open(path.c_str(), static_cast<int>(nativeOpenFlags(mode)));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
         return {.handle = NO_HANDLE, .error = errno};
     }
-#if defined(__APPLE__)
-    const FcntlHints hints = nativeFcntlHints(unbuffered);
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-vararg)
-    if (hints.noCache && ::fcntl(fd, F_NOCACHE, 1) != 0) {
-        // Not a hint here: without it the read is silently buffered, so the open fails.
-        const int error = errno;
+    const int error = applyOpenHints(fd, mode);
+    if (error != 0) {
         ::close(fd);
         return {.handle = NO_HANDLE, .error = error};
     }
-    if (hints.readAhead) {
-        // A hint only; a failure changes nothing that is checked.
-        static_cast<void>(::fcntl(fd, F_RDAHEAD, 1));
-    }
-    // NOLINTEND(cppcoreguidelines-pro-type-vararg)
-#else
-    if (!unbuffered) {
-        // A hint only (the kernel reads ahead more); a failure changes nothing that is checked.
-        static_cast<void>(::posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL));
-    }
-#endif
     return {.handle = fd, .error = 0};
-}
-
-std::uint32_t sectorSize(std::intptr_t handle) noexcept {
-    std::uint32_t alignment = 4096;  // what O_DIRECT accepts on the common file systems
-#if defined(STATX_DIOALIGN)
-    struct statx info{};
-    if (::statx(static_cast<int>(handle), "", AT_EMPTY_PATH, STATX_DIOALIGN, &info) == 0 &&
-        (info.stx_mask & STATX_DIOALIGN) != 0) {
-        if (info.stx_dio_offset_align == 0) {
-            return 0;  // the file system does not support O_DIRECT for this file
-        }
-        alignment = std::max(static_cast<std::uint32_t>(info.stx_dio_offset_align),
-                             static_cast<std::uint32_t>(info.stx_dio_mem_align));
-    }
-#else
-    static_cast<void>(handle);
-#endif
-    return alignment;
 }
 
 void closeNative(std::intptr_t handle) noexcept {

@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <cstdint>
 #include <optional>
 #include <string_view>
 
@@ -10,8 +11,8 @@ namespace {
 
 using dvv::platform::MetalWindow;
 using dvv::platform::NativeWindow;
-using dvv::platform::PixelSize;
 using dvv::platform::Win32Window;
+using dvv::platform::WindowHandle;
 using dvv::platform::WindowSystem;
 using dvv::platform::XlibWindow;
 
@@ -37,13 +38,21 @@ TEST_CASE("windowSystemOf names the window's alternative") {
     CHECK(dvv::platform::windowSystemOf(NativeWindow{MetalWindow{}}) == WindowSystem::Metal);
 }
 
-TEST_CASE("a pixel size is empty when a side is 0") {
-    CHECK(PixelSize{}.empty());
-    CHECK(PixelSize{.width = 1, .height = 0}.empty());
-    CHECK(PixelSize{.width = 0, .height = 1}.empty());
-    CHECK_FALSE(PixelSize{.width = 1, .height = 1}.empty());
-    CHECK(PixelSize{.width = 2, .height = 3} == PixelSize{.width = 2, .height = 3});
-    CHECK(PixelSize{.width = 2, .height = 3} != PixelSize{.width = 3, .height = 2});
+TEST_CASE("the variant overload matches the struct overloads") {
+    // From a std::uintptr_t, not an int literal: an int cast to a pointer is C4312 under /WX.
+    // NOLINTBEGIN(performance-no-int-to-ptr): fake native handles made from words
+    const Win32Window win32{.hinstance = reinterpret_cast<void*>(std::uintptr_t{0x10}),
+                            .hwnd = reinterpret_cast<void*>(std::uintptr_t{0x20})};
+    const XlibWindow xlib{.display = reinterpret_cast<void*>(std::uintptr_t{0x30}), .window = 0x31};
+    const MetalWindow metal{.layer = reinterpret_cast<void*>(std::uintptr_t{0x40})};
+    // NOLINTEND(performance-no-int-to-ptr)
+    CHECK(dvv::platform::windowHandleOf(NativeWindow{win32}) ==
+          dvv::platform::windowHandleOf(win32));
+    CHECK(dvv::platform::windowHandleOf(NativeWindow{xlib}) == dvv::platform::windowHandleOf(xlib));
+    CHECK(dvv::platform::windowHandleOf(NativeWindow{metal}) ==
+          dvv::platform::windowHandleOf(metal));
+    CHECK(dvv::platform::windowHandleOf(NativeWindow{}).empty());
+    CHECK(dvv::platform::windowHandleOf(NativeWindow{}) == WindowHandle{});
 }
 
 TEST_CASE("each window system needs VK_KHR_surface and its own extension") {

@@ -30,17 +30,17 @@ constexpr std::size_t MAX_CHUNK = std::size_t{1} << 30;
 
 const bool AUTO_TRIES_UNBUFFERED = true;
 
-std::uint32_t nativeOpenFlags(bool unbuffered) noexcept {
+std::uint32_t nativeOpenFlags(OpenMode mode) noexcept {
     // A synchronous handle: FileReader runs one read at a time, so overlapped I/O gains nothing.
     // Buffered: the sequential-scan hint makes the cache manager read ahead more. Unbuffered: no
     // cache, sector-aligned I/O.
     return FILE_ATTRIBUTE_NORMAL |
-           (unbuffered ? FILE_FLAG_NO_BUFFERING : FILE_FLAG_SEQUENTIAL_SCAN);
+           (mode == OpenMode::Unbuffered ? FILE_FLAG_NO_BUFFERING : FILE_FLAG_SEQUENTIAL_SCAN);
 }
 
-NativeOpen openNative(const std::filesystem::path& path, bool unbuffered) noexcept {
+NativeOpen openNative(const std::filesystem::path& path, OpenMode mode) noexcept {
     const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                    nullptr, OPEN_EXISTING, nativeOpenFlags(unbuffered), nullptr);
+                                    nullptr, OPEN_EXISTING, nativeOpenFlags(mode), nullptr);
     if (file == INVALID_HANDLE_VALUE) {
         return {.handle = NO_HANDLE, .error = static_cast<int>(GetLastError())};
     }

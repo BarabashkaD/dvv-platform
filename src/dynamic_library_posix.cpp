@@ -1,3 +1,4 @@
+#include <format>
 #include <string>
 #include <string_view>
 
@@ -11,7 +12,7 @@ bool isAbsolutePath(std::string_view path) noexcept {
     return path.starts_with('/');
 }
 
-// Every search, DllDirectory included, passes the name to dlopen as is.
+// Every search, LibraryDirectory included, passes the name to dlopen as is.
 
 void* loadLibrary(const std::string& name, LibrarySearch /*search*/, std::string& error) {
     void* const handle = dlopen(name.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -31,3 +32,15 @@ void unloadLibrary(void* handle) noexcept {
 }
 
 }  // namespace dvv::platform::detail
+
+namespace dvv::platform {
+
+std::string libraryFileName(std::string_view name, unsigned major) {
+#if defined(__APPLE__)
+    return std::format("lib{}.{}.dylib", name, major);  // macOS: the version sits before the suffix
+#else
+    return std::format("lib{}.so.{}", name, major);
+#endif
+}
+
+}  // namespace dvv::platform

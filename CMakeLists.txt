@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.2)
-project(dvv_platform VERSION 0.2.0 DESCRIPTION "dvv platform layer" LANGUAGES CXX)
+project(dvv_platform VERSION 0.3.0 DESCRIPTION "dvv platform layer" LANGUAGES CXX)
 if(APPLE)
     enable_language(OBJCXX)
 endif()
@@ -27,6 +27,7 @@ if(NOT DVV_CMAKE_DIR)
     message(FATAL_ERROR "dvv_base did not define DVV_CMAKE_DIR")
 endif()
 include("${DVV_CMAKE_DIR}/DvvCompilerOptions.cmake")
+include("${DVV_CMAKE_DIR}/DvvOsSources.cmake")
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
@@ -38,25 +39,17 @@ if(NOT WIN32 AND NOT APPLE)
     find_package(X11 REQUIRED)
 endif()
 
-if(WIN32)
-    set(platform_sources
-        src/dynamic_library_win32.cpp src/file_reader_win32.cpp src/surface_win32.cpp)
-    set(test_window_source src/testing/test_window_win32.cpp)
-elseif(APPLE)
-    set(platform_sources
-        src/dynamic_library_posix.cpp src/file_reader_posix.cpp src/surface_metal.cpp)
-    set(test_window_source src/testing/test_window_cocoa.mm)
-else()
-    set(platform_sources
-        src/dynamic_library_posix.cpp src/file_reader_posix.cpp src/surface_xlib.cpp)
-    set(test_window_source src/testing/test_window_xlib.cpp)
-endif()
 add_library(dvv_platform STATIC
+    src/aligned_buffer.cpp
+    src/crash_handler.cpp
     src/dynamic_library.cpp
     src/file_reader.cpp
+    src/file_writer.cpp
     src/native_window.cpp
     src/surface.cpp
-    ${platform_sources})
+    src/window_handle.cpp)
+dvv_os_sources(dvv_platform src/crash_handler src/dynamic_library src/file_reader src/file_writer
+               src/surface src/window_handle)
 add_library(dvv::platform ALIAS dvv_platform)
 set_target_properties(dvv_platform PROPERTIES EXPORT_NAME platform)
 target_include_directories(dvv_platform PUBLIC
@@ -79,7 +72,10 @@ dvv_set_compiler_options(dvv_platform)
 
 # Native test windows for the display tests of dvv-platform, dvv-gpu and rawreel (spec §12).
 # Installed and exported: a stand-alone dvv-gpu build may use an installed dvv_platform.
-add_library(dvv_platform_testing STATIC ${test_window_source})
+add_library(dvv_platform_testing STATIC)
+# ARC: dvv_os_sources compiles each .mm with -fobjc-arc; the window and view are strong references
+# owned by the test window state.
+dvv_os_sources(dvv_platform_testing src/testing/test_window)
 add_library(dvv::platform_testing ALIAS dvv_platform_testing)
 set_target_properties(dvv_platform_testing PROPERTIES EXPORT_NAME platform_testing)
 if(WIN32)
@@ -87,9 +83,6 @@ if(WIN32)
 elseif(APPLE)
     target_link_libraries(dvv_platform_testing PUBLIC dvv::platform
                           PRIVATE "-framework AppKit" "-framework QuartzCore")
-    # ARC: the window and view are strong references owned by the test window state.
-    set_source_files_properties(src/testing/test_window_cocoa.mm PROPERTIES
-        COMPILE_OPTIONS -fobjc-arc)
 else()
     target_link_libraries(dvv_platform_testing PUBLIC dvv::platform PRIVATE X11::X11)
 endif()
