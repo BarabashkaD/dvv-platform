@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -16,6 +17,7 @@
 #include <vector>
 
 #include "crash_handler_detail.h"
+#include "dvv/base/ascii.h"
 #include "dvv/base/environment.h"
 #include "dvv/base/log.h"
 #include "dvv/base/paths.h"
@@ -57,29 +59,6 @@ constexpr bool skipText(std::string_view& text, std::string_view prefix) noexcep
     }
     text.remove_prefix(prefix.size());
     return true;
-}
-
-// The proleptic Gregorian date of `days` since 1970-01-01 (H. Hinnant's civil_from_days).
-struct CivilDate {
-    std::int64_t year = 0;
-    unsigned month = 0;
-    unsigned day = 0;
-};
-
-constexpr CivilDate civilFromDays(std::int64_t days) noexcept {
-    const std::int64_t shifted = days + 719468;
-    const std::int64_t era = (shifted >= 0 ? shifted : shifted - 146096) / 146097;
-    const auto day_of_era = static_cast<std::uint64_t>(shifted - (era * 146097));
-    const std::uint64_t year_of_era =
-        (day_of_era - (day_of_era / 1460) + (day_of_era / 36524) - (day_of_era / 146096)) / 365;
-    const std::uint64_t day_of_year =
-        day_of_era - ((365 * year_of_era) + (year_of_era / 4) - (year_of_era / 100));
-    const std::uint64_t month_index = ((5 * day_of_year) + 2) / 153;  // March is 0
-    const auto day = static_cast<unsigned>(day_of_year - (((153 * month_index) + 2) / 5) + 1);
-    const auto month = static_cast<unsigned>(month_index < 10 ? month_index + 3 : month_index - 9);
-    const std::int64_t year =
-        static_cast<std::int64_t>(year_of_era) + (era * 400) + (month <= 2 ? 1 : 0);
-    return {.year = year, .month = month, .day = day};
 }
 
 // Logs and renames one snapshot file; nothing when another process renamed it first.
@@ -141,8 +120,7 @@ bool isValidProcessName(std::string_view process) noexcept {
     // No leading '.': the crash files would be hidden files on macOS and Linux.
     return !process.empty() && process.size() <= MAX_NAME_BYTES && !process.starts_with('.') &&
            std::ranges::all_of(process, [](char c) {
-               return isDigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' ||
-                      c == '_' || c == '-';
+               return isDigit(c) || dvv::isAsciiLetter(c) || c == '.' || c == '_' || c == '-';
            });
 }
 
@@ -202,28 +180,36 @@ bool isSnapshotName(std::string_view file_name, std::string_view process) noexce
 std::size_t formatCrashStem(std::span<char> out, std::string_view process,
                             std::int64_t local_seconds, std::uint64_t pid) noexcept {
     constexpr std::int64_t DAY = 86400;
+    // The times whose year has four digits, as isSnapshotName reads them. A clock outside them
+    // gets the nearest one, so a crash snapshot is never lost over a clock value.
+    constexpr std::int64_t FIRST_SECOND =
+        std::chrono::sys_days{std::chrono::year{0} / 1 / 1}.time_since_epoch().count() * DAY;
+    constexpr std::int64_t LAST_SECOND =
+        (std::chrono::sys_days{std::chrono::year{9999} / 12 / 31}.time_since_epoch().count() *
+         DAY) +
+        DAY - 1;
+    const std::int64_t seconds = std::clamp(local_seconds, FIRST_SECOND, LAST_SECOND);
     // Floor division: a time before 1970 belongs to the day before.
-    std::int64_t days = local_seconds / DAY;
-    std::int64_t second_of_day = local_seconds % DAY;
+    std::int64_t days = seconds / DAY;
+    std::int64_t second_of_day = seconds % DAY;
     if (second_of_day < 0) {
         second_of_day += DAY;
         --days;
     }
-    const CivilDate date = civilFromDays(days);
-    if (date.year < 0) {
-        return 0;
-    }
+    const std::chrono::year_month_day date{
+        std::chrono::sys_days{std::chrono::days{static_cast<std::chrono::days::rep>(days)}}};
     const auto time_of_day = static_cast<std::uint64_t>(second_of_day);
     std::size_t length = 0;
-    const bool fits = appendText(out, length, process) && appendText(out, length, "-") &&
-                      appendNumberAt(out, length, static_cast<std::uint64_t>(date.year), 10, 4) &&
-                      appendNumberAt(out, length, date.month, 10, 2) &&
-                      appendNumberAt(out, length, date.day, 10, 2) &&
-                      appendText(out, length, "-") &&
-                      appendNumberAt(out, length, time_of_day / 3600, 10, 2) &&
-                      appendNumberAt(out, length, (time_of_day / 60) % 60, 10, 2) &&
-                      appendNumberAt(out, length, time_of_day % 60, 10, 2) &&
-                      appendText(out, length, "-") && appendNumberAt(out, length, pid, 10, 1);
+    const bool fits =
+        appendText(out, length, process) && appendText(out, length, "-") &&
+        appendNumberAt(out, length, static_cast<std::uint64_t>(static_cast<int>(date.year())), 10,
+                       4) &&
+        appendNumberAt(out, length, static_cast<unsigned>(date.month()), 10, 2) &&
+        appendNumberAt(out, length, static_cast<unsigned>(date.day()), 10, 2) &&
+        appendText(out, length, "-") && appendNumberAt(out, length, time_of_day / 3600, 10, 2) &&
+        appendNumberAt(out, length, (time_of_day / 60) % 60, 10, 2) &&
+        appendNumberAt(out, length, time_of_day % 60, 10, 2) && appendText(out, length, "-") &&
+        appendNumberAt(out, length, pid, 10, 1);
     return fits ? length : 0;
 }
 

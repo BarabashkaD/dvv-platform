@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+#include "dvv/base/paths.h"
 #include "dvv/base/utf8.h"
 #include "dvv/base/utf8_win32.h"
 #include "dynamic_library_detail.h"
@@ -24,9 +25,7 @@ bool isAbsolutePath(std::string_view path) noexcept {
     if (path.size() >= 2 && isSlash(path[0]) && isSlash(path[1])) {
         return true;  // UNC (\\server\share\...) or a device path (\\?\...)
     }
-    const bool letter = path.size() >= 3 &&
-                        ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z'));
-    return letter && path[1] == ':' && isSlash(path[2]);
+    return path.size() >= 3 && dvv::isDriveLetterPath(path) && isSlash(path[2]);
 }
 
 std::string win32ErrorMessage(DWORD code) {

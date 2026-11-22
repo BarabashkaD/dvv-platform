@@ -27,8 +27,6 @@ enum class LibrarySearch : std::uint8_t {
     // dlopen of the path (RTLD_NOW | RTLD_LOCAL); dependencies through the library's RUNPATH
     // (Linux), @rpath/install names (macOS) or sonames already loaded.
     LibraryDirectory,
-    DllDirectory =
-        LibraryDirectory,  // Deprecated (CHANGELOG): use LibraryDirectory; removed in 1.0.0
 };
 
 // The file name of a shared library with a major version on this OS: Windows "<name>-<major>.dll",

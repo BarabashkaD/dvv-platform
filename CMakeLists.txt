@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.2)
-project(dvv_platform VERSION 0.3.0 DESCRIPTION "dvv platform layer" LANGUAGES CXX)
+project(dvv_platform VERSION 0.4.0 DESCRIPTION "dvv platform layer" LANGUAGES CXX)
 if(APPLE)
     enable_language(OBJCXX)
 endif()
@@ -31,12 +31,8 @@ include("${DVV_CMAKE_DIR}/DvvOsSources.cmake")
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-# Vulkan comes only from the pinned packages in the third-party prefix, never from CMake's FindVulkan
-# module, which would pick up an installed Vulkan SDK through VULKAN_SDK.
-set(CMAKE_DISABLE_FIND_PACKAGE_Vulkan ON)
-find_package(VulkanHeaders 1.4.365 EXACT CONFIG REQUIRED)
 if(NOT WIN32 AND NOT APPLE)
-    find_package(X11 REQUIRED)
+    find_package(X11 REQUIRED)  # dvv::platform_testing (the Xlib test window)
 endif()
 
 add_library(dvv_platform STATIC
@@ -45,29 +41,16 @@ add_library(dvv_platform STATIC
     src/dynamic_library.cpp
     src/file_reader.cpp
     src/file_writer.cpp
-    src/native_window.cpp
-    src/surface.cpp
     src/window_handle.cpp)
 dvv_os_sources(dvv_platform src/crash_handler src/dynamic_library src/file_reader src/file_writer
-               src/surface src/window_handle)
+               src/window_handle)
 add_library(dvv::platform ALIAS dvv_platform)
 set_target_properties(dvv_platform PROPERTIES EXPORT_NAME platform)
 target_include_directories(dvv_platform PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-if(APPLE)
-    # vulkan_metal.h declares CAMetalLayer opaque, so the Metal surface file stays plain C++.
-    set_source_files_properties(src/surface_metal.cpp PROPERTIES
-        COMPILE_DEFINITIONS VK_USE_PLATFORM_METAL_EXT)
-    target_link_libraries(dvv_platform PRIVATE "-framework QuartzCore")
-elseif(NOT WIN32)
-    # Only the headers (Display, Window for VkXlibSurfaceCreateInfoKHR); nothing calls Xlib here.
-    target_include_directories(dvv_platform SYSTEM PRIVATE ${X11_INCLUDE_DIR})
-endif()
-# Vulkan's C headers are part of the interface, always without prototypes: every Vulkan function
-# comes through vkGetInstanceProcAddr. dlopen on Linux (CMAKE_DL_LIBS is empty on Windows).
-target_compile_definitions(dvv_platform PUBLIC VK_NO_PROTOTYPES)
-target_link_libraries(dvv_platform PUBLIC dvv::base Vulkan::Headers PRIVATE ${CMAKE_DL_LIBS})
+# dlopen on Linux (CMAKE_DL_LIBS is empty on Windows).
+target_link_libraries(dvv_platform PUBLIC dvv::base PRIVATE ${CMAKE_DL_LIBS})
 dvv_set_compiler_options(dvv_platform)
 
 # Native test windows for the display tests of dvv-platform, dvv-gpu and rawreel (spec §12).
@@ -95,7 +78,7 @@ install(EXPORT dvv_platformTargets NAMESPACE dvv:: DESTINATION ${config_dir})
 configure_package_config_file(cmake/dvv_platformConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/dvv_platformConfig.cmake INSTALL_DESTINATION ${config_dir})
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/dvv_platformConfigVersion.cmake
-    COMPATIBILITY SameMajorVersion)
+    COMPATIBILITY SameMinorVersion)
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/dvv_platformConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/dvv_platformConfigVersion.cmake

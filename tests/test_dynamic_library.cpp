@@ -11,6 +11,8 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+
+#include "dynamic_library_detail.h"
 #else
 #include <dlfcn.h>
 #endif
@@ -199,20 +201,18 @@ TEST_CASE("libraryFileName gives this OS's name") {
 #endif
 }
 
-// Goes in 1.0.0 with DllDirectory.
-TEST_CASE("DllDirectory is LibraryDirectory") {
-    static_assert(LibrarySearch::DllDirectory == LibrarySearch::LibraryDirectory);
-    const auto library =
-        DynamicLibrary::open(DVV_PLATFORM_TEST_DEPENDENT, LibrarySearch::DllDirectory);
-    CHECK(library.has_value());
-    if (library) {
-        const auto function = library->function<TestFunction>("dvvTestDependentValue");
-        CHECK(function != nullptr);
-        if (function != nullptr) {
-            CHECK(function() == 43);
-        }
-    }
+#if defined(_WIN32)
+TEST_CASE("isAbsolutePath takes a drive letter, ':' and a slash, or two slashes") {
+    using dvv::platform::detail::isAbsolutePath;
+    CHECK(isAbsolutePath("X:\\x"));
+    CHECK(isAbsolutePath("x:/x"));
+    CHECK(isAbsolutePath("\\\\server\\share"));
+    CHECK_FALSE(isAbsolutePath("X:"));
+    CHECK_FALSE(isAbsolutePath("X:x"));
+    CHECK_FALSE(isAbsolutePath("1:\\x"));
+    CHECK_FALSE(isAbsolutePath("x"));
 }
+#endif
 
 // Keep this case last: a kept library is never unloaded, so later cases could not check unloading.
 TEST_CASE("keepLoaded keeps the library loaded after destruction") {

@@ -1,3 +1,0 @@
-# os-blocks baseline, written by dvv-build tools/os-blocks.cmake; it may only shrink
-1	src/surface.cpp
-1	src/surface_detail.h

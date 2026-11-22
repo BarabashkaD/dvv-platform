@@ -5,14 +5,12 @@
 #include <format>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <source_location>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <type_traits>
 #include <utility>
-#include <variant>
 
 // X11 defines macros such as None, Bool, Status, Success, True and False; clang-format puts it
 // before the dvv headers, which use none of those names (the standard headers they need come
@@ -83,7 +81,7 @@ Result<TestWindow> TestWindow::create(PixelSize client_size, std::string_view ti
     if (!name || name->empty()) {
         return makeError(Errc::Unsupported, "no display: DISPLAY is not set");
     }
-    // The Vulkan driver uses the display from the presenter thread as well.
+    // dvv-gpu's presenter uses the display from its thread as well.
     static std::once_flag threads;
     std::call_once(threads, [] { XInitThreads(); });
     Display* const display = XOpenDisplay(nullptr);
@@ -111,13 +109,6 @@ TestWindow::TestWindow(std::unique_ptr<State> state) noexcept : state_(std::move
 TestWindow::TestWindow(TestWindow&& other) noexcept = default;
 TestWindow& TestWindow::operator=(TestWindow&& other) noexcept = default;
 TestWindow::~TestWindow() = default;
-
-NativeWindow TestWindow::native() const noexcept {
-    if (!state_) {
-        return std::monostate{};
-    }
-    return XlibWindow{.display = state_->display, .window = state_->window};
-}
 
 WindowHandle TestWindow::handle() const noexcept {
     if (!state_) {

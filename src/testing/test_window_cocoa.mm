@@ -10,7 +10,6 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
 
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
@@ -19,7 +18,7 @@
 #include "dvv/platform/testing/test_window.h"
 #include "dvv/platform/window_handle_metal.h"
 
-// The content view: its backing layer is a CAMetalLayer, which a Vulkan surface is created on.
+// The content view: its backing layer is a CAMetalLayer, which a dvv-gpu surface is created on.
 @interface DvvMetalView : NSView
 @end
 
@@ -104,7 +103,7 @@ void applySize(S& state, PixelSize client_size) {
     const CGFloat height = client_size.height / scale;
     [state.window setContentSize:NSMakeSize(std::ceil(width), std::ceil(height))];
     state.view.frame = NSMakeRect(0, 0, width, height);
-    // drawableSize is not written: the Vulkan swapchain sets it.
+    // drawableSize is not written: the swapchain sets it.
     state.view.layer.frame = state.view.bounds;
     state.view.layer.contentsScale = scale;
 }
@@ -183,13 +182,6 @@ TestWindow::TestWindow(std::unique_ptr<State> state) noexcept : state_(std::move
 TestWindow::TestWindow(TestWindow&& other) noexcept = default;
 TestWindow& TestWindow::operator=(TestWindow&& other) noexcept = default;
 TestWindow::~TestWindow() = default;
-
-NativeWindow TestWindow::native() const noexcept {
-    if (!state_) {
-        return std::monostate{};
-    }
-    return MetalWindow{.layer = (__bridge void*)state_->view.layer};
-}
 
 WindowHandle TestWindow::handle() const noexcept {
     if (!state_) {

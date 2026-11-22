@@ -93,13 +93,6 @@ TestWindow::TestWindow(TestWindow&& other) noexcept = default;
 TestWindow& TestWindow::operator=(TestWindow&& other) noexcept = default;
 TestWindow::~TestWindow() = default;
 
-NativeWindow TestWindow::native() const noexcept {
-    if (!state_) {
-        return std::monostate{};
-    }
-    return Win32Window{.hinstance = state_->instance, .hwnd = state_->hwnd};
-}
-
 WindowHandle TestWindow::handle() const noexcept {
     if (!state_) {
         return {};

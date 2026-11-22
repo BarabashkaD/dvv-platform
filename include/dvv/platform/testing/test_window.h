@@ -6,7 +6,6 @@
 #include <string_view>
 
 #include "dvv/base/error.h"
-#include "dvv/platform/native_window.h"
 #include "dvv/platform/pixel_size.h"
 #include "dvv/platform/window_handle.h"
 
@@ -15,8 +14,8 @@ namespace dvv::platform::testing {
 // A visible top-level window for display tests: CreateWindowExW, XCreateSimpleWindow on its own
 // Display (XInitThreads() once before the first XOpenDisplay), or a Cocoa NSWindow with a
 // CAMetalLayer content view (main thread; clientSize() is in physical pixels). Move-only; every
-// member is called on the thread that created it. Destroy every surface and presenter made from it
-// first.
+// member is called on the thread that created it. Destroy everything made from its handle (a
+// dvv-gpu presenter and its surface) first.
 class TestWindow {
 public:
     // Errc::Unsupported "no display ..." (Linux without DISPLAY or the display cannot be opened;
@@ -30,7 +29,6 @@ public:
     TestWindow& operator=(const TestWindow&) = delete;
     ~TestWindow();
 
-    [[nodiscard]] NativeWindow native() const noexcept;  // std::monostate when moved from
     [[nodiscard]] WindowHandle handle() const noexcept;  // empty when moved from
     [[nodiscard]] PixelSize clientSize() const;          // as the window system reports it
     void resize(PixelSize client_size);  // synchronous (SetWindowPos / XResizeWindow + XSync /

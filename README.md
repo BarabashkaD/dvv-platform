@@ -4,8 +4,8 @@ Platform layer of the dvv stack used by rawreel, on Windows, Linux and macOS: na
 (`WindowHandle`), run-time libraries (`DynamicLibrary`), positional file reads (`FileReader`),
 atomic file replacement (`replaceFile`), a crash handler (`installCrashHandler`) and a native test
 window for display tests (`dvv::platform_testing`). C++23; depends on
-[dvv-base](https://github.com/BarabashkaD/dvv-base) and the pinned Vulkan-Headers (C headers only,
-`VK_NO_PROTOTYPES`; used by the deprecated surface.h). Nothing in it depends on a GUI toolkit.
+[dvv-base](https://github.com/BarabashkaD/dvv-base). Nothing in it depends on a GUI toolkit or on
+Vulkan.
 
 ## Build
 
@@ -18,7 +18,7 @@ the same file:
 
 ```powershell
 git clone https://github.com/BarabashkaD/dvv-platform
-git clone --branch v0.5.1 https://github.com/BarabashkaD/dvv-build
+git clone --branch v0.6.0 https://github.com/BarabashkaD/dvv-build
 python -m pip install -r dvv-build/tools/requirements.txt
 cmake -DREPO=dvv-platform -P dvv-build/tools/fetch-deps.cmake
 ./dvv-build/bootstrap.ps1
@@ -44,16 +44,6 @@ Target `dvv::platform` (namespace `dvv::platform`):
   `xlibWindowOf()` and `metalWindowOf()`. The caller keeps the window alive while anything made
   from its handle exists; for Xlib also the `Display`, which it opens after `XInitThreads()`, and
   for Metal the `CAMetalLayer`.
-- `dvv/platform/native_window.h` (deprecated, removed in 1.0.0): `NativeWindow`, a `std::variant`
-  of `std::monostate` and the per-OS structs; `windowSystemOf()` and
-  `windowHandleOf(const NativeWindow&)`. Use `window_handle.h`, `pixel_size.h` and the per-OS
-  header.
-- `dvv/platform/surface.h` (deprecated, removed in 1.0.0; dvv-gpu creates its surfaces itself):
-  `surfaceInstanceExtensions(system)` lists the instance extensions a window system needs.
-  `createSurface(instance, vkGetInstanceProcAddr, window)` returns
-  `std::expected<VkSurfaceKHR, VkResult>`: `VK_ERROR_EXTENSION_NOT_PRESENT` when the function is
-  unavailable, `VK_ERROR_INITIALIZATION_FAILED` for `std::monostate` or null handles, else the
-  driver's result. Destroy the surface before the window.
 - `dvv/platform/dynamic_library.h`: `DynamicLibrary`, a move-only RAII handle.
   `DynamicLibrary::open(name, search)` takes a UTF-8 name and returns `Errc::Unsupported`
   "'<name>' could not be loaded: <system message>", or `Errc::Internal` for an empty name, a name
@@ -107,7 +97,6 @@ if (const auto metal = dvv::platform::metalWindowOf(handle)) {
   `dlopen` the path (`RTLD_NOW | RTLD_LOCAL`); its dependencies come through its RUNPATH (Linux),
   its `@rpath` and install names (macOS) or libraries of the same name already loaded, so its own
   folder is searched only when its RUNPATH or `@rpath` names it (`$ORIGIN`, `@loader_path`).
-  `LibrarySearch::DllDirectory` stays as an alias of it (deprecated, removed in 1.0.0).
 
 ```cpp
 // A versioned library by its file name on this OS: "avutil-60.dll", "libavutil.60.dylib" or
@@ -241,18 +230,16 @@ Reads are `ReadFile` on a synchronous handle with an `OVERLAPPED` that carries o
 `dvv/platform/testing/test_window.h` (namespace `dvv::platform::testing`) is for tests only.
 `TestWindow::create(size, title)` opens a visible top-level window; `Errc::Unsupported`
 "no display ..." without a display. It offers `handle()` (a `WindowHandle`), `clientSize()`,
-`resize()`, `minimise()`, `restore()` and `pump()`; `native()` is deprecated (use `handle()`). It is
-move-only and used on the thread that created it; destroy every surface and presenter made from it
-first.
+`resize()`, `minimise()`, `restore()` and `pump()`. It is move-only and used on the thread that
+created it; destroy everything made from its handle (a dvv-gpu presenter and its surface) first.
 
 ## Tests
 
-- `dvv_platform.unit`: `DynamicLibrary`, `WindowHandle`, `NativeWindow`, `PixelSize`,
-  `AlignedBuffer`, `replaceFile`, the crash handler's internals, the extension lists and
-  `FileReader`; no display needed.
-- `dvv_platform.surface` (label `display`): creates a `TestWindow` and a Vulkan surface for it. It
-  exits with 77 (skipped) without a Vulkan loader, surface extensions or display;
-  `DVV_REQUIRE_GPU=1` turns that into a failure.
+- `dvv_platform.unit`: `DynamicLibrary`, `WindowHandle`, `PixelSize`, `AlignedBuffer`,
+  `replaceFile`, the crash handler's internals and `FileReader`; no display needed.
+- `dvv_platform.display` (label `display`): creates a `TestWindow`, resizes, minimises and
+  restores it. It exits with 77 (skipped) without a display; `DVV_REQUIRE_GPU=1` turns that into
+  a failure.
 - `dvv_platform.crash`: a child process crashes in each mode and a script checks the stderr lines,
   the files and the report of the next start. Not registered under sanitizers.
 - `dvv_platform.package`: installs the package and builds consumers against it.

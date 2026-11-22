@@ -165,6 +165,13 @@ TEST_SUITE("crash_handler") {
         CHECK(std::string_view(exact.data(), exact.size()) == "p-19700101-000000-1");
         std::array<char, 18> shorter{};
         CHECK(formatCrashStem(shorter, "p", 0, 1) == 0);
+        CHECK(stem(-62167219200, 1) == "p-00000101-000000-1");
+        CHECK(stem(-62167219199, 1) == "p-00000101-000001-1");
+        CHECK(stem(-62167219201, 1) == "p-00000101-000000-1");
+        CHECK(stem(std::numeric_limits<std::int64_t>::min(), 1) == "p-00000101-000000-1");
+        CHECK(stem(253402300799, 1) == "p-99991231-235959-1");
+        CHECK(stem(253402300800, 1) == "p-99991231-235959-1");
+        CHECK(stem(std::numeric_limits<std::int64_t>::max(), 1) == "p-99991231-235959-1");
     }
 
     TEST_CASE("the report takes the 8 oldest snapshots and renames them") {

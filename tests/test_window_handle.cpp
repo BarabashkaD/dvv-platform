@@ -112,4 +112,17 @@ TEST_SUITE("window_handle") {
         CHECK_FALSE(dvv::platform::xlibWindowOf(WindowHandle{}).has_value());
         CHECK_FALSE(dvv::platform::metalWindowOf(WindowHandle{}).has_value());
     }
+
+    TEST_CASE("window systems have names and a default") {
+        CHECK(dvv::platform::windowSystemName(WindowSystem::Win32) == "Win32");
+        CHECK(dvv::platform::windowSystemName(WindowSystem::Xlib) == "Xlib");
+        CHECK(dvv::platform::windowSystemName(WindowSystem::Metal) == "Metal");
+#if defined(_WIN32)
+        CHECK(dvv::platform::defaultWindowSystem() == WindowSystem::Win32);
+#elif defined(__APPLE__)
+        CHECK(dvv::platform::defaultWindowSystem() == WindowSystem::Metal);
+#else
+        CHECK(dvv::platform::defaultWindowSystem() == WindowSystem::Xlib);
+#endif
+    }
 }
