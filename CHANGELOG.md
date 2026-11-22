@@ -2,9 +2,41 @@
 
 All notable changes to dvv-platform. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semantic versioning with
-the dvv rules: compatible = the same major and at least the minimum version, also for 0.x; breaking
-changes only in a new major, after a deprecation. This file is the release notes (there are no
-GitHub Releases).
+the dvv rules: compatible = the same 0.minor and at least the minimum version; a replaced or
+unused API is removed in the next 0.x minor, with no deprecation period. This file is the release
+notes (there are no GitHub Releases).
+
+## [0.4.0] - 2026-11-22
+
+No Vulkan and one window vocabulary: the surface functions, `NativeWindow` and the
+`DllDirectory` alias are removed.
+
+### Removed
+- `dvv/platform/surface.h` (`surfaceInstanceExtensions`, `createSurface`); dvv-gpu creates its
+  surfaces from a `WindowHandle`. With it go the package's Vulkan-Headers dependency, the public
+  `VK_NO_PROTOTYPES` definition and the QuartzCore link of `dvv::platform`; a target that includes
+  Vulkan headers links `Vulkan::Headers` (or `dvv::gpu`) itself.
+- `dvv/platform/native_window.h` with `NativeWindow`, `windowSystemOf(const NativeWindow&)` and
+  `windowHandleOf(const NativeWindow&)`. Use `WindowHandle` from `window_handle.h`, `PixelSize`
+  from `pixel_size.h` and the per-OS header: `windowHandleOf(XlibWindow{display, window})`,
+  `xlibWindowOf(handle)`, `handle.system()`.
+- `TestWindow::native()`; use `handle()`.
+- `LibrarySearch::DllDirectory`; use `LibrarySearch::LibraryDirectory`.
+
+### Changed
+- The crash snapshot's name comes from one function on every OS, its date from
+  `std::chrono::year_month_day`. Names are unchanged for every time from 0000-01-01 to
+  9999-12-31.
+- The display test is `dvv_platform.display`: a test window only, no Vulkan loader. It runs
+  wherever a window can be created.
+- Compatible means the same 0.minor and at least the minimum version; the package version file
+  uses `SameMinorVersion`.
+- Requires dvv-build 0.6.0 and dvv-base 0.6.0.
+
+### Fixed
+- A crash whose local clock lies outside 0000-01-01 to 9999-12-31 writes a snapshot named with the
+  nearest time in that range, which the next start reports. Before, a time before the year 0 wrote
+  no snapshot on Linux and macOS, and a time after 9999 wrote one the next start never reported.
 
 ## [0.3.0] - 2026-11-21
 

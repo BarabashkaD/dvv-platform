@@ -48,9 +48,11 @@ void crashNow(std::string_view mode);
                                   unsigned base, unsigned min_digits) noexcept;
 // True for exactly "<process>-<8 digits>-<6 digits>-<1 to 10 digits>.dvvlog".
 [[nodiscard]] bool isSnapshotName(std::string_view file_name, std::string_view process) noexcept;
-// "<process>-<yyyymmdd-hhmmss>-<pid>" from local seconds since 1970 (days-from-civil arithmetic,
-// no library call). Writes at most `out.size()` bytes and returns the count, 0 when it does not
-// fit. Async-signal-safe (the POSIX handler uses it).
+// "<process>-<yyyymmdd-hhmmss>-<pid>" from local seconds since 1970 (std::chrono calendar
+// arithmetic: header-only constexpr code, no allocation, lock or system call). A local time
+// outside 0000-01-01 to 9999-12-31 gets the nearest time in that range, so every crash gets a
+// name. Writes at most `out.size()` bytes and returns the count, 0 only when it does not fit.
+// Async-signal-safe; both crash handlers use it.
 [[nodiscard]] std::size_t formatCrashStem(std::span<char> out, std::string_view process,
                                           std::int64_t local_seconds, std::uint64_t pid) noexcept;
 // Logs and renames up to `limit` unreported snapshots of `process` in `folder`, oldest first.

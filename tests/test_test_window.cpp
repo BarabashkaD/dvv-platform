@@ -1,10 +1,9 @@
 #include <doctest/doctest.h>
 
 #include <utility>
-#include <variant>
 
-#include "dvv/platform/native_window.h"
 #include "dvv/platform/testing/test_window.h"
+#include "dvv/platform/window_handle_win32.h"
 
 using dvv::platform::PixelSize;
 using dvv::platform::testing::TestWindow;
@@ -14,9 +13,16 @@ TEST_CASE("a test window reports, changes and restores its client size") {
     REQUIRE(created.has_value());
     TestWindow window = std::move(*created);
     CHECK(window.clientSize() == PixelSize{.width = 320, .height = 240});
-    CHECK(dvv::platform::windowSystemOf(window.native()) == dvv::platform::defaultWindowSystem());
     CHECK(window.handle().system() == dvv::platform::defaultWindowSystem());
-    CHECK(dvv::platform::windowHandleOf(window.native()) == window.handle());
+    // Word 0 is the display / instance (the layer on Metal); word 1 is the window itself.
+    CHECK(window.handle().words()[0] != 0);
+#if defined(_WIN32)
+    const auto win32_window = dvv::platform::win32WindowOf(window.handle());
+    REQUIRE(win32_window.has_value());
+    CHECK(win32_window->hwnd != nullptr);
+#elif !defined(__APPLE__)
+    CHECK(window.handle().words()[1] != 0);
+#endif
 
     window.resize({.width = 200, .height = 150});
     CHECK(window.clientSize() == PixelSize{.width = 200, .height = 150});
@@ -45,9 +51,6 @@ TEST_CASE("a test window reports, changes and restores its client size") {
     TestWindow moved = std::move(window);
     CHECK(moved.clientSize() == PixelSize{.width = 200, .height = 150});
     // A moved-from TestWindow is documented to describe no window; that state is under test.
-    // NOLINTNEXTLINE(bugprone-use-after-move)
-    CHECK(std::holds_alternative<std::monostate>(window.native()));
-    // The moved-from state is under test.
     // NOLINTNEXTLINE(bugprone-use-after-move)
     CHECK(window.handle().empty());
 }

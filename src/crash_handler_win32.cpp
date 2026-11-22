@@ -1,5 +1,6 @@
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
@@ -177,24 +178,20 @@ void makeFolders() noexcept {
     static_cast<void>(CreateDirectoryW(state.folder, nullptr));
 }
 
-// "<process>-<yyyymmdd-hhmmss>-<pid>" for the crash time (local) into the stem buffer; false
-// when it does not fit.
+// "<process>-<yyyymmdd-hhmmss>-<pid>" for the crash time (local) into the stem buffer, through
+// formatCrashStem; false when it does not fit.
 bool formatStem() noexcept {
     SYSTEMTIME time{};
     GetLocalTime(&time);
-    const std::span<char> stem(state.stem);
-    std::size_t length = 0;
-    const bool fits =
-        appendText(stem, length, std::string_view(state.exe, state.exeLength)) &&
-        appendText(stem, length, "-") && appendNumberAt(stem, length, time.wYear, 10, 4) &&
-        appendNumberAt(stem, length, time.wMonth, 10, 2) &&
-        appendNumberAt(stem, length, time.wDay, 10, 2) && appendText(stem, length, "-") &&
-        appendNumberAt(stem, length, time.wHour, 10, 2) &&
-        appendNumberAt(stem, length, time.wMinute, 10, 2) &&
-        appendNumberAt(stem, length, time.wSecond, 10, 2) && appendText(stem, length, "-") &&
-        appendNumberAt(stem, length, GetCurrentProcessId(), 10, 1);
-    state.stemLength = fits ? length : 0;
-    return fits;
+    const std::chrono::sys_days date{std::chrono::year{static_cast<int>(time.wYear)} /
+                                     std::chrono::month{time.wMonth} / std::chrono::day{time.wDay}};
+    const std::int64_t local_seconds = (std::int64_t{date.time_since_epoch().count()} * 86400) +
+                                       (std::int64_t{time.wHour} * 3600) +
+                                       (std::int64_t{time.wMinute} * 60) + time.wSecond;
+    state.stemLength =
+        formatCrashStem(std::span<char>(state.stem), std::string_view(state.exe, state.exeLength),
+                        local_seconds, GetCurrentProcessId());
+    return state.stemLength != 0;
 }
 
 // <folder>\<stem><extension> and a NUL into `path`; false when it does not fit.

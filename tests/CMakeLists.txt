@@ -27,12 +27,12 @@ add_executable(dvv_platform_tests
     test_dynamic_library.cpp
     test_file_reader.cpp
     test_file_writer.cpp
-    test_native_window.cpp
     test_pixel_size.cpp
     test_window_handle.cpp)
 target_link_libraries(dvv_platform_tests PRIVATE dvv::platform doctest::doctest)
-# The FileReader, replaceFile and crash handler tests use the private seam headers
-# (src/file_reader_detail.h, src/file_writer_detail.h, src/crash_handler_detail.h).
+# The FileReader, replaceFile, crash handler and (Windows) DynamicLibrary tests use the private
+# seam headers (src/file_reader_detail.h, src/file_writer_detail.h, src/crash_handler_detail.h,
+# src/dynamic_library_detail.h).
 target_include_directories(dvv_platform_tests PRIVATE ${dvv_platform_SOURCE_DIR}/src)
 # doctest otherwise only forward-declares std::ostream, which breaks printing std types.
 target_compile_definitions(dvv_platform_tests PRIVATE
@@ -52,26 +52,20 @@ set_tests_properties(dvv_platform.unit PROPERTIES
 # marks install and consumer tests, which only the full cycle runs (vs2026-small excludes them).
 set_property(TEST dvv_platform.unit APPEND PROPERTY LABELS sanity)
 
-# Display tests (spec §12, label display): a real window and a Vulkan surface for it. The executable
-# exits with 77 (skipped) without a Vulkan loader, a driver with the surface extensions or a display,
-# unless DVV_REQUIRE_GPU=1.
-add_executable(dvv_platform_surface_tests
-    surface_main.cpp
-    surface_support.cpp
-    test_surface.cpp
-    test_test_window.cpp)
-target_link_libraries(dvv_platform_surface_tests PRIVATE dvv::platform dvv::platform_testing
-                                                         doctest::doctest)
-target_compile_definitions(dvv_platform_surface_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)
-dvv_set_compiler_options(dvv_platform_surface_tests)
-add_test(NAME dvv_platform.surface COMMAND dvv_platform_surface_tests)
-set_tests_properties(dvv_platform.surface PROPERTIES
+# Display tests (spec §12, label display): a real test window. The executable exits with 77
+# (skipped) without a display, unless DVV_REQUIRE_GPU=1.
+add_executable(dvv_platform_display_tests display_main.cpp test_test_window.cpp)
+target_link_libraries(dvv_platform_display_tests PRIVATE dvv::platform_testing doctest::doctest)
+target_compile_definitions(dvv_platform_display_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)
+dvv_set_compiler_options(dvv_platform_display_tests)
+add_test(NAME dvv_platform.display COMMAND dvv_platform_display_tests)
+set_tests_properties(dvv_platform.display PROPERTIES
     LABELS display
     SKIP_RETURN_CODE 77
     TIMEOUT 120
     ENVIRONMENT DVV_LEAK_CHECK=fail
     ENVIRONMENT_MODIFICATION "${DVV_TEST_ENVIRONMENT}")
-set_property(TEST dvv_platform.surface APPEND PROPERTY LABELS sanity)
+set_property(TEST dvv_platform.display APPEND PROPERTY LABELS sanity)
 
 # Crash test (spec §8): a child process crashes in each mode and the script checks the crash
 # handler's stderr lines, files and report. Not registered for sanitizer builds, whose own

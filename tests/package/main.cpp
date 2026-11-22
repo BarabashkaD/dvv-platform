@@ -5,14 +5,17 @@
 #include "dvv/platform/crash_handler.h"
 #include "dvv/platform/dynamic_library.h"
 #include "dvv/platform/file_writer.h"
-#include "dvv/platform/native_window.h"
 #include "dvv/platform/pixel_size.h"
-#include "dvv/platform/surface.h"
 #include "dvv/platform/testing/test_window.h"
 #include "dvv/platform/window_handle.h"
 #include "dvv/platform/window_handle_metal.h"
 #include "dvv/platform/window_handle_win32.h"
 #include "dvv/platform/window_handle_xlib.h"
+
+// dvv::platform carries no Vulkan definition any more.
+#if defined(VK_NO_PROTOTYPES)
+#error "dvv::platform still defines VK_NO_PROTOTYPES"
+#endif
 
 // Defined in window_handle_only.cpp, which includes window_handle.h and nothing else.
 bool dvvPlatformHandleIsEmpty();
@@ -51,13 +54,12 @@ int main() {
         return 1;
     }
     // Taking the addresses links both libraries without creating a window.
-    auto* volatile create_surface = &dvv::platform::createSurface;
     auto* volatile create_window = &dvv::platform::testing::TestWindow::create;
     auto* volatile replace_file = &dvv::platform::replaceFile;
     auto* volatile library_file_name = &dvv::platform::libraryFileName;
     auto* volatile install_crash_handler = &dvv::platform::installCrashHandler;
-    if (create_surface == nullptr || create_window == nullptr || replace_file == nullptr ||
-        library_file_name == nullptr || install_crash_handler == nullptr) {
+    if (create_window == nullptr || replace_file == nullptr || library_file_name == nullptr ||
+        install_crash_handler == nullptr) {
         return 1;
     }
     // The new public types are named, so a header that stops declaring one fails here.
